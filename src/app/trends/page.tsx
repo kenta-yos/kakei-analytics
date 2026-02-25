@@ -107,36 +107,38 @@ export default function TrendsPage() {
     return point;
   });
 
-  // 半年単位（H1: 6月末, H2: 12月末）の棒グラフ用データ
-  const halfYearNetAssetData = (() => {
-    // 全ての (year, half) を時系列順で生成
+  // 四半期単位（Q1=3月末, Q2=6月末, Q3=9月末, Q4=12月末）の棒グラフ用データ
+  const quarterlyNetAssetData = (() => {
+    const QUARTERS = [
+      { q: 1, endMonth: 3, label: "Q1" },
+      { q: 2, endMonth: 6, label: "Q2" },
+      { q: 3, endMonth: 9, label: "Q3" },
+      { q: 4, endMonth: 12, label: "Q4" },
+    ] as const;
+
     const points: Array<{
       label: string;
       year: number;
-      half: 1 | 2;
-      [key: string]: number | string;
+      q: number;
+      netAssets: number;
+      diff?: number;
     }> = [];
 
     const sortedYears = [...selectedYears].sort();
     for (const y of sortedYears) {
-      for (const half of [1, 2] as const) {
-        const endMonth = half === 1 ? 6 : 12;
+      for (const { q, endMonth, label } of QUARTERS) {
         const d = netAssetData.find((t) => t.year === y && t.month === endMonth);
-        const point: typeof points[0] = {
-          label: `${y}${half === 1 ? "上" : "下"}`,
-          year: y,
-          half,
-          netAssets: d?.netAssets ?? 0,
-        };
-        points.push(point);
+        points.push({ label: `${y}${label}`, year: y, q, netAssets: d?.netAssets ?? 0 });
       }
     }
 
-    // 前回比（前のポイントとの差）を計算
+    // 前四半期比を計算
     for (let i = 1; i < points.length; i++) {
-      const cur = points[i].netAssets as number;
-      const prev = points[i - 1].netAssets as number;
-      points[i].diff = cur - prev;
+      const cur = points[i].netAssets;
+      const prev = points[i - 1].netAssets;
+      if (cur !== 0 || prev !== 0) {
+        points[i].diff = cur - prev;
+      }
     }
     return points;
   })();
@@ -222,31 +224,28 @@ export default function TrendsPage() {
           )}
         </Card>
 
-        {/* 純資産推移（半年単位棒グラフ） */}
+        {/* 純資産推移（四半期棒グラフ） */}
         <Card>
-          <CardTitle>純資産推移（半年単位・資産 − 負債）</CardTitle>
-          {loading ? <LoadingChart height={280} /> : (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={halfYearNetAssetData} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
+          <CardTitle>純資産推移・四半期（資産 − 負債）</CardTitle>
+          {loading ? <LoadingChart height={300} /> : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={quarterlyNetAssetData} margin={{ top: 28, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                 <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
                 <Tooltip
-                  formatter={(v: number, name: string) => [formatCurrency(v), name]}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    const d = halfYearNetAssetData.find((p) => p.label === label);
+                    const d = quarterlyNetAssetData.find((p) => p.label === label);
                     return (
                       <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs">
-                        <p className="text-slate-300 font-medium mb-1">{label}半期</p>
-                        {payload.map((p) => (
-                          <p key={p.name} style={{ color: p.fill as string }}>
-                            純資産: {formatCurrency(Number(p.value))}
-                          </p>
-                        ))}
-                        {d && d.diff !== undefined && (
-                          <p className={`mt-1 font-medium ${(d.diff as number) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                            前期比: {(d.diff as number) >= 0 ? "+" : ""}{formatCurrency(d.diff as number)}
+                        <p className="text-slate-300 font-medium mb-1">{label}</p>
+                        <p style={{ color: d ? getYearColor(d.year) : "#94a3b8" }}>
+                          純資産: {formatCurrency(Number(payload[0]?.value ?? 0))}
+                        </p>
+                        {d?.diff !== undefined && (
+                          <p className={`mt-1 font-medium ${d.diff >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            前四半期比: {d.diff >= 0 ? "+" : ""}{formatCurrency(d.diff)}
                           </p>
                         )}
                       </div>
@@ -256,7 +255,7 @@ export default function TrendsPage() {
                 <Bar
                   dataKey="netAssets"
                   name="純資産"
-                  radius={[4, 4, 0, 0]}
+                  radius={[3, 3, 0, 0]}
                   label={{
                     position: "top",
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -265,12 +264,12 @@ export default function TrendsPage() {
                       if (diff === undefined) return "";
                       return `${diff >= 0 ? "+" : ""}${(diff / 10000).toFixed(0)}万`;
                     },
-                    fontSize: 10,
-                    fill: "#94a3b8",
+                    fontSize: 9,
+                    fill: "#64748b",
                   }}
                 >
-                  {halfYearNetAssetData.map((entry) => (
-                    <Cell key={entry.label} fill={getYearColor(entry.year as number)} />
+                  {quarterlyNetAssetData.map((entry) => (
+                    <Cell key={entry.label} fill={getYearColor(entry.year)} />
                   ))}
                 </Bar>
               </BarChart>
