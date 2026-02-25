@@ -237,8 +237,25 @@ export default function AnalyticsPage() {
             </div>
             {aiError && <p className="text-red-400 text-sm mb-2">{aiError}</p>}
             {aiResult && (
-              <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 leading-relaxed prose prose-sm prose-invert max-w-none">
-                <ReactMarkdown>{aiResult}</ReactMarkdown>
+              <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 leading-relaxed">
+                <ReactMarkdown
+                  components={{
+                    h1: ({ children }) => <h1 className="text-base font-bold text-white mb-2 mt-3">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-sm font-bold text-white mb-2 mt-3">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-200 mb-1 mt-2">{children}</h3>,
+                    p: ({ children }) => <p className="text-slate-300 mb-2">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
+                    li: ({ children }) => <li className="text-slate-300">{children}</li>,
+                    strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                    em: ({ children }) => <em className="text-slate-200 italic">{children}</em>,
+                    hr: () => <hr className="border-slate-600 my-3" />,
+                    blockquote: ({ children }) => <blockquote className="border-l-2 border-slate-600 pl-3 text-slate-400 my-2">{children}</blockquote>,
+                    code: ({ children }) => <code className="bg-slate-700 px-1 rounded text-slate-200 text-xs">{children}</code>,
+                  }}
+                >
+                  {aiResult}
+                </ReactMarkdown>
               </div>
             )}
           </Card>

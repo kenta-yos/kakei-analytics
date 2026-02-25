@@ -38,6 +38,10 @@ export default function CategorySelect({
       )}
     >
       {includeAll && <option value="">{allLabel}</option>}
+      {/* categories未ロード時はcurrent valueをfallback表示して空白を防ぐ */}
+      {categories.length === 0 && value && !includeAll && (
+        <option value={value}>{value}</option>
+      )}
       {categories.map((cat) => (
         <option key={cat} value={cat}>{cat}</option>
       ))}
