@@ -60,7 +60,8 @@ async function getMonthlySummary(year: number, month: number) {
         eq(transactions.year, year),
         eq(transactions.month, month),
         eq(transactions.excludeFromPl, false),
-        ne(transactions.type, "振替")
+        ne(transactions.type, "振替"),
+        ne(transactions.category, "振替")
       )
     )
     .groupBy(transactions.type, transactions.category)
@@ -102,7 +103,8 @@ async function getYearlyMonthlyBreakdown(year: number) {
       and(
         eq(transactions.year, year),
         eq(transactions.excludeFromPl, false),
-        ne(transactions.type, "振替")
+        ne(transactions.type, "振替"),
+        ne(transactions.category, "振替")
       )
     )
     .groupBy(transactions.month)
@@ -121,6 +123,7 @@ async function getYearlySummaries(years?: number[]) {
   const conditions = [
     eq(transactions.excludeFromPl, false),
     ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
   ];
   if (years && years.length > 0) {
     conditions.push(inArray(transactions.year, years));

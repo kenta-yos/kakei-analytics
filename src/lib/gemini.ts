@@ -8,7 +8,7 @@ import { geminiUsage } from "./schema";
 import { eq, sql } from "drizzle-orm";
 
 export const GEMINI_DAILY_LIMIT = 400;
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 /** 日本時間の今日の日付を YYYY-MM-DD で返す */
 function todayJST(): string {

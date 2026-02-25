@@ -52,15 +52,15 @@ export default function BalanceSheetPage() {
     return acc;
   }, { bank: [], credit: [], investment: [], ic_card: [], qr_pay: [], cash: [], other: [] });
 
-  // 資産合計（クレカを除く）
+  // 資産合計（残高が正のもの）
   const totalAssets = assets
-    .filter((a) => a.assetType !== "credit" && a.closingBalance > 0)
+    .filter((a) => a.closingBalance > 0)
     .reduce((sum, a) => sum + a.closingBalance, 0);
 
-  // 負債合計（クレカのマイナス残高）
+  // 負債合計（残高がマイナスのもの、クレカ以外の借入金・未払金も含む）
   const totalLiabilities = assets
-    .filter((a) => a.assetType === "credit")
-    .reduce((sum, a) => sum + Math.abs(Math.min(a.closingBalance, 0)), 0);
+    .filter((a) => a.closingBalance < 0)
+    .reduce((sum, a) => sum + Math.abs(a.closingBalance), 0);
 
   const netAssets = totalAssets - totalLiabilities;
 
@@ -144,7 +144,7 @@ export default function BalanceSheetPage() {
           {/* 負債側 */}
           <div className="space-y-4">
             <h2 className="text-white font-semibold text-base">負債</h2>
-            {grouped.credit.length > 0 ? (
+            {assets.filter((a) => a.closingBalance < 0).length > 0 ? (
               <Card>
                 <div className="flex justify-between items-center mb-2">
                   <CardTitle>負債</CardTitle>
@@ -152,12 +152,15 @@ export default function BalanceSheetPage() {
                 </div>
                 <table className="data-table">
                   <tbody>
-                    {grouped.credit.map((a) => (
-                      <tr key={a.id}>
-                        <td className="text-slate-400">{a.assetName}</td>
-                        <td className="text-right text-red-400">{formatCurrency(Math.abs(a.closingBalance))}</td>
-                      </tr>
-                    ))}
+                    {assets
+                      .filter((a) => a.closingBalance < 0)
+                      .sort((a, b) => a.closingBalance - b.closingBalance)
+                      .map((a) => (
+                        <tr key={a.id}>
+                          <td className="text-slate-400">{a.assetName}</td>
+                          <td className="text-right text-red-400">{formatCurrency(Math.abs(a.closingBalance))}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </Card>
