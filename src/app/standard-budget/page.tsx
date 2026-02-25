@@ -278,6 +278,7 @@ export default function StandardBudgetPage() {
                               [cat]: { ...prev[cat], allocation: Number(e.target.value) },
                             }))
                           }
+                          onFocus={(e) => e.target.select()}
                           style={{ fontSize: '16px' }}
                           className="w-24 bg-slate-800 text-white text-right px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none"
                         />
