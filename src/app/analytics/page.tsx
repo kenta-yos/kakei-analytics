@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
 import GeminiUsageBadge from "@/components/ui/GeminiUsageBadge";
@@ -236,8 +237,8 @@ export default function AnalyticsPage() {
             </div>
             {aiError && <p className="text-red-400 text-sm mb-2">{aiError}</p>}
             {aiResult && (
-              <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
-                {aiResult}
+              <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 leading-relaxed prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown>{aiResult}</ReactMarkdown>
               </div>
             )}
           </Card>

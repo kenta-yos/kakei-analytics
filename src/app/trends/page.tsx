@@ -23,10 +23,12 @@ type CategoryPoint = {
 };
 
 const YEAR_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#a855f7", "#ec4899", "#14b8a6", "#f43f5e", "#eab308"];
+const ALL_YEARS = Array.from({ length: 8 }, (_, i) => 2019 + i);
+const getYearColor = (year: number) => YEAR_COLORS[ALL_YEARS.indexOf(year) % YEAR_COLORS.length];
 
 export default function TrendsPage() {
   const now = new Date();
-  const allYears = Array.from({ length: 8 }, (_, i) => 2019 + i);
+  const allYears = ALL_YEARS;
   const [selectedYears, setSelectedYears] = useState<number[]>([now.getFullYear(), now.getFullYear() - 1]);
   const [trendData, setTrendData] = useState<MonthlyPoint[]>([]);
   const [catTrend, setCatTrend] = useState<CategoryPoint[]>([]);
@@ -101,7 +103,7 @@ export default function TrendsPage() {
                   ? "border-transparent text-white"
                   : "border-slate-700 text-slate-500 hover:text-slate-300"
               }`}
-              style={selectedYears.includes(y) ? { background: YEAR_COLORS[i % YEAR_COLORS.length] } : {}}
+              style={selectedYears.includes(y) ? { background: getYearColor(y) } : {}}
             >
               {y}年
             </button>
@@ -123,12 +125,12 @@ export default function TrendsPage() {
                 <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
                 <Tooltip formatter={(v: number) => formatCurrency(v)} />
                 <Legend />
-                {selectedYears.map((y, i) => (
+                {selectedYears.map((y) => (
                   <Line
                     key={y}
                     type="monotone"
                     dataKey={`${y}年_支出`}
-                    stroke={YEAR_COLORS[i % YEAR_COLORS.length]}
+                    stroke={getYearColor(y)}
                     strokeWidth={2}
                     dot={false}
                     name={`${y}年`}
@@ -148,11 +150,11 @@ export default function TrendsPage() {
                 <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
                 <Tooltip formatter={(v: number) => formatCurrency(v)} />
                 <Legend />
-                {selectedYears.map((y, i) => (
+                {selectedYears.map((y) => (
                   <Bar
                     key={y}
                     dataKey={`${y}年_純損益`}
-                    fill={YEAR_COLORS[i % YEAR_COLORS.length]}
+                    fill={getYearColor(y)}
                     name={`${y}年`}
                     radius={[3, 3, 0, 0]}
                   />
@@ -179,12 +181,12 @@ export default function TrendsPage() {
                 <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                 <Tooltip formatter={(v: number) => formatCurrency(v)} />
                 <Legend />
-                {selectedYears.map((y, i) => (
+                {selectedYears.map((y) => (
                   <Line
                     key={y}
                     type="monotone"
                     dataKey={`${y}年`}
-                    stroke={YEAR_COLORS[i % YEAR_COLORS.length]}
+                    stroke={getYearColor(y)}
                     strokeWidth={2}
                     dot={{ r: 3 }}
                   />
@@ -206,7 +208,7 @@ export default function TrendsPage() {
                 </tr>
               </thead>
               <tbody>
-                {selectedYears.map((y, i) => {
+                {selectedYears.map((y) => {
                   const yearData = trendData.filter((d) => d.year === y);
                   const income = yearData.reduce((sum, d) => sum + d.totalIncome, 0);
                   const expense = yearData.reduce((sum, d) => sum + d.totalExpense, 0);
@@ -215,7 +217,7 @@ export default function TrendsPage() {
                     <tr key={y}>
                       <td>
                         <span className="inline-flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: YEAR_COLORS[i % YEAR_COLORS.length] }} />
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: getYearColor(y) }} />
                           {y}年
                         </span>
                       </td>
