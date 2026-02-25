@@ -129,6 +129,20 @@ export default function BudgetPage() {
         existing.filter((r) => r.hasBudget).map((r) => [r.categoryName, r])
       );
 
+      // 標準予算を取得（既存予算が1件もない月のみ適用）
+      let standardMap = new Map<string, number>();
+      const hasBudgetCount = existing.filter((r) => r.hasBudget).length;
+      if (hasBudgetCount === 0) {
+        try {
+          const sbRes = await fetch("/api/standard-budget");
+          const sbJson = await sbRes.json();
+          const standardItems: { categoryName: string; allocation: number }[] = sbJson.data?.items ?? [];
+          standardMap = new Map(standardItems.filter((i) => i.allocation > 0).map((i) => [i.categoryName, i.allocation]));
+        } catch {
+          // 取得失敗時は無視
+        }
+      }
+
       const newEditMap: Record<
         string,
         { allocation: number; carryover: number; enabled: boolean }
@@ -142,10 +156,12 @@ export default function BudgetPage() {
             enabled: true,
           };
         } else {
+          const stdAllocation = standardMap.get(cat) ?? 0;
+          const carryover = carryoverMap.get(cat) ?? 0;
           newEditMap[cat] = {
-            allocation: 0,
-            carryover: carryoverMap.get(cat) ?? 0,
-            enabled: (carryoverMap.get(cat) ?? 0) !== 0,
+            allocation: stdAllocation,
+            carryover,
+            enabled: stdAllocation !== 0 || carryover !== 0,
           };
         }
       });
@@ -341,12 +357,6 @@ export default function BudgetPage() {
             </button>
           ) : (
             <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={fillFromPrevActuals}
-                className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
-              >
-                前月実績で一括設定
-              </button>
               <button
                 onClick={() => { loadData(); setIsEditing(false); }}
                 className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
@@ -552,7 +562,7 @@ export default function BudgetPage() {
             <li>・<span className="text-blue-300/80">予算列</span>（前月繰越・今月割り当て・合計予算）: 前月繰越は自動入力。今月割り当てを入力すると未配分残りにリアルタイム反映</li>
             <li>・実績列（前月実績・当月実績）: 参考値。編集不可</li>
             <li>・<span className="text-emerald-300/80">残高列</span>（残り・進捗）: 合計予算 − 当月実績を自動計算</li>
-            <li>・<span className="text-slate-300">前月実績で一括設定</span>: 前月の実績額を割り当て欄に一括コピーします（参考値）</li>
+            <li>・予算が未設定の月は標準予算が自動的に適用されます。標準予算は<a href="/standard-budget" className="text-blue-400 hover:underline">標準予算設定</a>ページで変更できます</li>
           </ul>
         </Card>
       )}

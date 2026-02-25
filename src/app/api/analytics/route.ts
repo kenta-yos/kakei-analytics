@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions, assetSnapshots } from "@/lib/schema";
-import { eq, and, inArray, sql, ne, gte, lte, desc } from "drizzle-orm";
+import { eq, and, inArray, sql, ne, desc } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -61,6 +61,11 @@ export async function GET(req: NextRequest) {
       case "top_items": {
         if (!year) return NextResponse.json({ error: "year が必要です" }, { status: 400 });
         const data = await getTopItems(year, month ?? undefined);
+        return NextResponse.json({ data });
+      }
+
+      case "past_year_summary": {
+        const data = await getPastYearSummary();
         return NextResponse.json({ data });
       }
 
@@ -290,6 +295,69 @@ async function getComparisonData(
       total2: data2.reduce((s, r) => s + r.total, 0),
     },
   };
+}
+
+async function getPastYearSummary() {
+  // 本日から過去12ヶ月の範囲を計算
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // JST
+  const toYear = now.getFullYear();
+  const toMonth = now.getMonth() + 1;
+  // 12ヶ月前の年月
+  const fromDate = new Date(now);
+  fromDate.setMonth(fromDate.getMonth() - 11);
+  const fromYear = fromDate.getFullYear();
+  const fromMonth = fromDate.getMonth() + 1;
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      year: transactions.year,
+      month: transactions.month,
+      total: sql<number>`sum(expense_amount)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.excludeFromPl, false),
+        ne(transactions.type, "振替"),
+        ne(transactions.category, "振替"),
+        eq(transactions.type, "支出"),
+        sql`(year * 100 + month) >= ${fromYear * 100 + fromMonth}`,
+        sql`(year * 100 + month) <= ${toYear * 100 + toMonth}`
+      )
+    )
+    .groupBy(transactions.category, transactions.year, transactions.month);
+
+  // カテゴリ別に月合計を集計
+  const categoryMonthlyMap = new Map<string, number[]>();
+  for (const r of rows) {
+    if (!categoryMonthlyMap.has(r.category)) {
+      categoryMonthlyMap.set(r.category, []);
+    }
+    categoryMonthlyMap.get(r.category)!.push(Number(r.total ?? 0));
+  }
+
+  // 月数（最大12）
+  const totalMonths = 12;
+
+  // カテゴリ別の月平均・総合計を計算
+  const categoryTotals: { category: string; monthlyAvg: number; total: number }[] = [];
+  let grandTotal = 0;
+  for (const [category, monthlyAmounts] of categoryMonthlyMap.entries()) {
+    const total = monthlyAmounts.reduce((s, v) => s + v, 0);
+    const monthlyAvg = Math.round(total / totalMonths);
+    categoryTotals.push({ category, monthlyAvg, total });
+    grandTotal += total;
+  }
+
+  return categoryTotals
+    .sort((a, b) => b.total - a.total)
+    .map((r) => ({
+      category: r.category,
+      monthlyAvg: r.monthlyAvg,
+      total: r.total,
+      ratio: grandTotal > 0 ? Math.round((r.total / grandTotal) * 1000) / 10 : 0,
+    }));
 }
 
 async function getTopItems(year: number, month?: number, limit = 20) {

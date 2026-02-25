@@ -96,7 +96,7 @@ ${input.prompt}`;
         contents: [{ parts: [{ text: fullPrompt }] }],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 8192,
         },
       }),
     });

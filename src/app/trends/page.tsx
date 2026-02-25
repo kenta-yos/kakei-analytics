@@ -4,7 +4,7 @@ import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, Legend, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend, CartesianGrid, Cell,
 } from "recharts";
 
 type MonthlyPoint = {
@@ -107,15 +107,39 @@ export default function TrendsPage() {
     return point;
   });
 
-  const netAssetChartData = Array.from({ length: 12 }, (_, i) => {
-    const m = i + 1;
-    const point: Record<string, number | string> = { month: `${m}月` };
-    for (const year of selectedYears) {
-      const d = netAssetData.find((t) => t.year === year && t.month === m);
-      point[`${year}年`] = d?.netAssets ?? 0;
+  // 半年単位（H1: 6月末, H2: 12月末）の棒グラフ用データ
+  const halfYearNetAssetData = (() => {
+    // 全ての (year, half) を時系列順で生成
+    const points: Array<{
+      label: string;
+      year: number;
+      half: 1 | 2;
+      [key: string]: number | string;
+    }> = [];
+
+    const sortedYears = [...selectedYears].sort();
+    for (const y of sortedYears) {
+      for (const half of [1, 2] as const) {
+        const endMonth = half === 1 ? 6 : 12;
+        const d = netAssetData.find((t) => t.year === y && t.month === endMonth);
+        const point: typeof points[0] = {
+          label: `${y}${half === 1 ? "上" : "下"}`,
+          year: y,
+          half,
+          netAssets: d?.netAssets ?? 0,
+        };
+        points.push(point);
+      }
     }
-    return point;
-  });
+
+    // 前回比（前のポイントとの差）を計算
+    for (let i = 1; i < points.length; i++) {
+      const cur = points[i].netAssets as number;
+      const prev = points[i - 1].netAssets as number;
+      points[i].diff = cur - prev;
+    }
+    return points;
+  })();
 
   return (
     <div className="p-4 sm:p-6">
@@ -198,29 +222,58 @@ export default function TrendsPage() {
           )}
         </Card>
 
-        {/* 純資産推移（資産-負債） */}
+        {/* 純資産推移（半年単位棒グラフ） */}
         <Card>
-          <CardTitle>純資産推移（資産 − 負債）</CardTitle>
-          {loading ? <LoadingChart height={240} /> : (
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={netAssetChartData}>
+          <CardTitle>純資産推移（半年単位・資産 − 負債）</CardTitle>
+          {loading ? <LoadingChart height={280} /> : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={halfYearNetAssetData} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} />
                 <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
-                <Legend />
-                {selectedYears.map((y) => (
-                  <Line
-                    key={y}
-                    type="monotone"
-                    dataKey={`${y}年`}
-                    stroke={getYearColor(y)}
-                    strokeWidth={2}
-                    dot={false}
-                    name={`${y}年`}
-                  />
-                ))}
-              </LineChart>
+                <Tooltip
+                  formatter={(v: number, name: string) => [formatCurrency(v), name]}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = halfYearNetAssetData.find((p) => p.label === label);
+                    return (
+                      <div className="bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs">
+                        <p className="text-slate-300 font-medium mb-1">{label}半期</p>
+                        {payload.map((p) => (
+                          <p key={p.name} style={{ color: p.fill as string }}>
+                            純資産: {formatCurrency(Number(p.value))}
+                          </p>
+                        ))}
+                        {d && d.diff !== undefined && (
+                          <p className={`mt-1 font-medium ${(d.diff as number) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                            前期比: {(d.diff as number) >= 0 ? "+" : ""}{formatCurrency(d.diff as number)}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Bar
+                  dataKey="netAssets"
+                  name="純資産"
+                  radius={[4, 4, 0, 0]}
+                  label={{
+                    position: "top",
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter: (_v: number, _name: string, props: any) => {
+                      const diff = props?.payload?.diff;
+                      if (diff === undefined) return "";
+                      return `${diff >= 0 ? "+" : ""}${(diff / 10000).toFixed(0)}万`;
+                    },
+                    fontSize: 10,
+                    fill: "#94a3b8",
+                  }}
+                >
+                  {halfYearNetAssetData.map((entry) => (
+                    <Cell key={entry.label} fill={getYearColor(entry.year as number)} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           )}
         </Card>

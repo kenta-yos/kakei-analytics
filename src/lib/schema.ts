@@ -11,6 +11,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 取引テーブル（収支合算CSVから取り込む全取引）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +125,46 @@ export const geminiUsage = pgTable(
 );
 
 export type GeminiUsage = typeof geminiUsage.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 標準予算テーブル（カテゴリ別デフォルト予算）
+// ─────────────────────────────────────────────────────────────────────────────
+export const standardBudgets = pgTable("standard_budgets", {
+  id: serial("id").primaryKey(),
+  categoryName: text("category_name").notNull().unique(),
+  allocation: integer("allocation").notNull().default(0),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 標準予算設定テーブル（基準収入を保存）
+// ─────────────────────────────────────────────────────────────────────────────
+export const standardBudgetSettings = pgTable("standard_budget_settings", {
+  id: integer("id").primaryKey().default(1),
+  referenceIncome: integer("reference_income").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 特別経費B予測テーブル（月別の予測アイテム）
+// ─────────────────────────────────────────────────────────────────────────────
+export const specialExpensesB = pgTable("special_expenses_b", {
+  id: serial("id").primaryKey(),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  itemName: text("item_name").notNull(),
+  plannedAmount: integer("planned_amount").notNull().default(0),
+  memo: text("memo"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [index("special_expenses_b_year_month_idx").on(t.year, t.month)]);
+
+export type StandardBudget = typeof standardBudgets.$inferSelect;
+export type NewStandardBudget = typeof standardBudgets.$inferInsert;
+export type StandardBudgetSettings = typeof standardBudgetSettings.$inferSelect;
+export type SpecialExpenseB = typeof specialExpensesB.$inferSelect;
+export type NewSpecialExpenseB = typeof specialExpensesB.$inferInsert;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 型エクスポート

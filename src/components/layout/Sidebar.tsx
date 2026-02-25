@@ -10,6 +10,8 @@ const navItems = [
   { href: "/balance-sheet", label: "貸借対照表", icon: "⊞" },
   { href: "/analytics", label: "分析", icon: "⊕" },
   { href: "/trends", label: "推移グラフ", icon: "↗" },
+  { href: "/standard-budget", label: "標準予算", icon: "⊙" },
+  { href: "/special-expense", label: "特別経費B", icon: "★" },
   { href: "/import", label: "CSVインポート", icon: "↑" },
 ];
 
