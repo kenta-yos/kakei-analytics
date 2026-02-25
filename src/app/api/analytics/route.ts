@@ -171,7 +171,18 @@ async function getAssetTrend(year?: number, month?: number) {
         ORDER BY asset_name, (year * 100 + month) DESC
       `
     );
-    return rows.rows;
+    // 生SQLはsnake_caseで返るので camelCase に変換
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (rows.rows as any[]).map((r) => ({
+      id: r.id,
+      assetName: r.asset_name,
+      year: Number(r.year),
+      month: Number(r.month),
+      openingBalance: Number(r.opening_balance),
+      closingBalance: Number(r.closing_balance),
+      assetType: r.asset_type,
+      updatedAt: r.updated_at,
+    }));
   }
 
   // year のみ指定: その年の全月分を返す（推移グラフ用）

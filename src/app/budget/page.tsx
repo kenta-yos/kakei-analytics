@@ -83,11 +83,13 @@ export default function BudgetPage() {
       prevRows.forEach((r) => { actualsMap[r.categoryName] = r.actual; });
       setPrevActuals(actualsMap);
 
-      // 5. この月に実際に使われているカテゴリ（= 実績がある or 予算設定済み）
+      // 5. この月に実際に使われているカテゴリ
+      // 来月など実績がない月の場合、前月実績カテゴリをベースにする
       const allCats = Array.from(
         new Set([
           ...existing.map((r) => r.categoryName),
           ...carryoverItems.map((c) => c.categoryName),
+          ...prevRows.map((r) => r.categoryName), // 前月実績ベース
         ])
       ).sort();
       setCategories(allCats);
