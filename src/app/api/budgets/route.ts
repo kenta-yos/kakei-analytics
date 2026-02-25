@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
           eq(transactions.month, month),
           eq(transactions.excludeFromPl, false),
           ne(transactions.type, "振替"),
+          ne(transactions.category, "振替"),
           eq(transactions.type, "支出")
         )
       )

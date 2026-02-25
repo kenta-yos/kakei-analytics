@@ -78,6 +78,7 @@ async function getCategoryBreakdown(year: number, month?: number) {
     eq(transactions.year, year),
     eq(transactions.excludeFromPl, false),
     ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
     eq(transactions.type, "支出"),
   ];
   if (month) conditions.push(eq(transactions.month, month));
@@ -106,6 +107,7 @@ async function getMonthlyTrend(years?: number[]) {
   const conditions = [
     eq(transactions.excludeFromPl, false),
     ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
   ];
   if (years && years.length > 0) {
     conditions.push(inArray(transactions.year, years));
@@ -144,6 +146,8 @@ async function getCategoryTrend(category: string) {
       and(
         eq(transactions.category, category),
         eq(transactions.excludeFromPl, false),
+        ne(transactions.type, "振替"),
+        ne(transactions.category, "振替"),
         eq(transactions.type, "支出")
       )
     )
@@ -201,6 +205,7 @@ async function getPaymentMethodBreakdown(year: number, month?: number) {
     eq(transactions.year, year),
     eq(transactions.excludeFromPl, false),
     ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
     eq(transactions.type, "支出"),
   ];
   if (month) conditions.push(eq(transactions.month, month));
@@ -226,15 +231,17 @@ async function getPaymentMethodBreakdown(year: number, month?: number) {
 }
 
 async function getTopItems(year: number, month?: number, limit = 20) {
-  const conditions = [
+  const baseConditions = [
     eq(transactions.year, year),
     eq(transactions.excludeFromPl, false),
     ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
     eq(transactions.type, "支出"),
   ];
-  if (month) conditions.push(eq(transactions.month, month));
+  if (month) baseConditions.push(eq(transactions.month, month));
 
-  const rows = await db
+  // 名称あり: (category, itemName) でグループ集計
+  const namedRows = await db
     .select({
       category: transactions.category,
       itemName: transactions.itemName,
@@ -242,15 +249,41 @@ async function getTopItems(year: number, month?: number, limit = 20) {
       count: sql<number>`count(*)`,
     })
     .from(transactions)
-    .where(and(...conditions))
+    .where(and(...baseConditions, sql`item_name IS NOT NULL AND item_name != ''`))
     .groupBy(transactions.category, transactions.itemName)
     .orderBy(sql`sum(expense_amount) desc`)
     .limit(limit);
 
-  return rows.map((r) => ({
-    category: r.category,
-    itemName: r.itemName ?? "",
-    total: Number(r.total ?? 0),
-    count: Number(r.count ?? 0),
-  }));
+  // 名称なし: 個別取引をそのまま取得（合算しない）
+  const unnamedRows = await db
+    .select({
+      category: transactions.category,
+      itemName: transactions.itemName,
+      total: transactions.expenseAmount,
+      count: sql<number>`1`,
+    })
+    .from(transactions)
+    .where(and(...baseConditions, sql`(item_name IS NULL OR item_name = '')`))
+    .orderBy(desc(transactions.expenseAmount))
+    .limit(limit);
+
+  // 結合して再ソート
+  const combined = [
+    ...namedRows.map((r) => ({
+      category: r.category,
+      itemName: r.itemName ?? "",
+      total: Number(r.total ?? 0),
+      count: Number(r.count ?? 0),
+    })),
+    ...unnamedRows.map((r) => ({
+      category: r.category,
+      itemName: "",
+      total: Number(r.total ?? 0),
+      count: 1,
+    })),
+  ]
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
+
+  return combined;
 }

@@ -192,7 +192,6 @@ export default function BudgetPage() {
     setSaved(false);
     try {
       const items = Object.entries(editMap)
-        .filter(([, v]) => v.enabled)
         .map(([cat, v]) => ({
           categoryName: cat,
           allocation: v.allocation,
@@ -371,18 +370,19 @@ export default function BudgetPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th className="w-8">ON</th>
-                  <th>カテゴリ</th>
-                  <th className="text-right hidden sm:table-cell">
-                    <span className="text-green-400">前月繰越</span>
-                    <span className="text-slate-600 text-xs ml-1">(自動)</span>
+                  <th className="text-left">カテゴリ</th>
+                  {/* ── 予算グループ ── */}
+                  <th className="text-right hidden sm:table-cell border-l-2 border-l-blue-800/50 text-blue-300/80">
+                    前月繰越<span className="text-slate-600 text-xs ml-1">(自動)</span>
                   </th>
-                  <th className="text-right">今月割り当て</th>
-                  <th className="text-right">合計予算</th>
-                  <th className="text-right hidden sm:table-cell text-slate-400">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
+                  <th className="text-right text-blue-300/80">今月割り当て</th>
+                  <th className="text-right text-blue-300/80">合計予算</th>
+                  {/* ── 実績グループ ── */}
+                  <th className="text-right hidden sm:table-cell border-l-2 border-l-slate-600/40">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
                   <th className="text-right">当月実績</th>
-                  <th className="text-right">残り</th>
-                  <th className="w-28 hidden md:table-cell">進捗</th>
+                  {/* ── 残高グループ ── */}
+                  <th className="text-right border-l-2 border-l-emerald-700/50 text-emerald-300/80">残り</th>
+                  <th className="w-28 hidden md:table-cell text-emerald-300/80">進捗</th>
                 </tr>
               </thead>
               <tbody>
@@ -396,29 +396,14 @@ export default function BudgetPage() {
                   const prevActual = prevActuals[cat] ?? 0;
 
                   return (
-                    <tr key={cat} className={edit.enabled ? "" : "opacity-40"}>
-                      {/* ON/OFF トグル */}
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={edit.enabled}
-                          onChange={(e) => update(cat, "enabled", e.target.checked)}
-                          className="w-4 h-4 accent-blue-500 cursor-pointer"
-                        />
-                      </td>
+                    <tr key={cat}>
                       <td className="font-medium text-slate-200">{cat}</td>
 
-                      {/* 前月繰越（読み取り専用 + 手動上書き可） */}
-                      <td className="text-right hidden sm:table-cell">
-                        <input
-                          type="number"
-                          value={edit.carryover}
-                          onChange={(e) => update(cat, "carryover", Number(e.target.value))}
-                          disabled={!edit.enabled}
-                          className={`w-24 bg-slate-800 text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-green-500 outline-none disabled:opacity-50 ${
-                            (edit.carryover ?? 0) >= 0 ? "text-green-400" : "text-red-400"
-                          }`}
-                        />
+                      {/* 前月繰越（読み取り専用） */}
+                      <td className={`text-right hidden sm:table-cell border-l-2 border-l-blue-800/30 font-medium ${
+                        (edit.carryover ?? 0) >= 0 ? "text-green-400" : "text-red-400"
+                      }`}>
+                        {formatCurrencySigned(edit.carryover)}
                       </td>
 
                       {/* 今月割り当て */}
@@ -427,18 +412,17 @@ export default function BudgetPage() {
                           type="number"
                           value={edit.allocation}
                           onChange={(e) => update(cat, "allocation", Number(e.target.value))}
-                          disabled={!edit.enabled}
-                          className="w-20 sm:w-24 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none disabled:opacity-50"
+                          className="w-20 sm:w-24 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none"
                         />
                       </td>
 
                       {/* 合計予算 */}
                       <td className="text-right text-white font-medium">
-                        {edit.enabled ? formatCurrency(totalB) : "—"}
+                        {formatCurrency(totalB)}
                       </td>
 
                       {/* 前月実績（参考） */}
-                      <td className="text-right text-slate-500 text-xs hidden sm:table-cell">
+                      <td className="text-right text-slate-500 text-xs hidden sm:table-cell border-l-2 border-l-slate-600/30">
                         {prevActual > 0 ? formatCurrency(prevActual) : "—"}
                       </td>
 
@@ -448,15 +432,15 @@ export default function BudgetPage() {
                       </td>
 
                       {/* 残り */}
-                      <td className={`text-right font-medium ${
-                        !edit.enabled ? "text-slate-600" : remaining < 0 ? "text-red-400" : "text-green-400"
+                      <td className={`text-right font-medium border-l-2 border-l-emerald-800/30 ${
+                        remaining < 0 ? "text-red-400" : totalB > 0 ? "text-green-400" : "text-slate-600"
                       }`}>
-                        {edit.enabled && totalB > 0 ? formatCurrencySigned(remaining) : "—"}
+                        {totalB > 0 ? formatCurrencySigned(remaining) : "—"}
                       </td>
 
                       {/* 進捗バー */}
                       <td className="hidden md:table-cell">
-                        {edit.enabled && totalB > 0 && (
+                        {totalB > 0 && (
                           <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                             <div
                               className={`h-full rounded-full transition-all ${
@@ -473,19 +457,19 @@ export default function BudgetPage() {
 
                 {/* 合計行 */}
                 <tr className="border-t-2 border-slate-600 font-semibold">
-                  <td colSpan={2} className="text-slate-300 pt-3">合計</td>
-                  <td className={`text-right pt-3 hidden sm:table-cell ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  <td className="text-slate-300 pt-3">合計</td>
+                  <td className={`text-right pt-3 hidden sm:table-cell border-l-2 border-l-blue-800/30 ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
                     {formatCurrencySigned(totalCarryover)}
                   </td>
                   <td className="text-right pt-3 text-blue-400">{formatCurrency(totalAllocation)}</td>
                   <td className="text-right pt-3 text-white">{formatCurrency(totalBudget)}</td>
-                  <td className="text-right pt-3 text-slate-500 text-xs hidden sm:table-cell">
+                  <td className="text-right pt-3 text-slate-500 text-xs hidden sm:table-cell border-l-2 border-l-slate-600/30">
                     {Object.values(prevActuals).reduce((s, v) => s + v, 0) > 0
                       ? formatCurrency(Object.values(prevActuals).reduce((s, v) => s + v, 0))
                       : "—"}
                   </td>
                   <td className="text-right pt-3 text-slate-300">{formatCurrency(totalActual)}</td>
-                  <td className={`text-right pt-3 font-medium ${
+                  <td className={`text-right pt-3 font-medium border-l-2 border-l-emerald-800/30 ${
                     totalBudget - totalActual < 0 ? "text-red-400" : "text-green-400"
                   }`}>
                     {totalBudget > 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
@@ -503,9 +487,9 @@ export default function BudgetPage() {
         <CardTitle>操作ガイド</CardTitle>
         <ul className="text-xs text-slate-400 space-y-1">
           <li>・<span className="text-green-400">前月収入</span>を見ながら各カテゴリに予算を割り振る。未配分残りが 0 になるまで入力する</li>
-          <li>・<span className="text-white">ON チェック</span>: 予算管理するカテゴリをオンにする</li>
-          <li>・<span className="text-green-400">前月繰越</span>: 前月の残り（±）が自動入力されます。手動上書き可</li>
-          <li>・<span className="text-blue-400">今月割り当て</span>: 前月収入から配分する額を入力（リアルタイムで未配分残りに反映）</li>
+          <li>・<span className="text-blue-300/80">予算列</span>（前月繰越・今月割り当て・合計予算）: 前月繰越は自動入力。今月割り当てを入力すると未配分残りにリアルタイム反映</li>
+          <li>・実績列（前月実績・当月実績）: 参考値。編集不可</li>
+          <li>・<span className="text-emerald-300/80">残高列</span>（残り・進捗）: 合計予算 − 当月実績を自動計算</li>
           <li>・<span className="text-slate-300">前月実績で一括設定</span>: 前月の実績額を割り当て欄に一括コピーします（参考値）</li>
         </ul>
       </Card>

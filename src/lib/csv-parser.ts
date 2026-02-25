@@ -297,6 +297,7 @@ export function aggregateAssetSnapshots(
  */
 function inferAssetType(name: string): string {
   if (/カード|クレカ|NICOS/.test(name)) return "credit";
+  if (/借入|ローン|未払金/.test(name)) return "credit"; // 負債性のもの
   if (/証券|iDeCo|投資信託|MMF|株|ETF/.test(name)) return "investment";
   if (/PASMO|suica|Suica|IC/.test(name)) return "ic_card";
   if (/PayPay|LINE Pay|ハチペイ|メルペイ|ペイ/.test(name)) return "qr_pay";
