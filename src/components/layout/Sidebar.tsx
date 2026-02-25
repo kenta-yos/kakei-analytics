@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const navItems = [
+  { href: "/report", label: "決算レポート", icon: "📊" },
   { href: "/budget", label: "予算管理", icon: "◎" },
   { href: "/transactions", label: "取引明細", icon: "≡" },
   { href: "/pl", label: "損益計算書", icon: "%" },
