@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
 import GeminiUsageBadge from "@/components/ui/GeminiUsageBadge";
+import CategorySelect from "@/components/ui/CategorySelect";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend,

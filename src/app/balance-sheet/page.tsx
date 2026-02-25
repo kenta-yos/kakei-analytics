@@ -34,10 +34,10 @@ export default function BalanceSheetPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/analytics?type=asset&year=${year}`);
+      // year+month を両方渡すことで「指定月以前の最新残高」を取得
+      const res = await fetch(`/api/analytics?type=asset&year=${year}&month=${month}`);
       const json = await res.json();
-      const all: AssetSnapshot[] = json.data ?? [];
-      setAssets(all.filter((a) => a.year === year && a.month === month));
+      setAssets((json.data ?? []) as AssetSnapshot[]);
     } finally {
       setLoading(false);
     }

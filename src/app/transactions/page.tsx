@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
+import CategorySelect from "@/components/ui/CategorySelect";
 import type { Transaction } from "@/lib/schema";
 
 export default function TransactionsPage() {
@@ -66,11 +67,12 @@ export default function TransactionsPage() {
           <option value="収入">収入</option>
           <option value="振替">振替</option>
         </select>
-        <input
+        <CategorySelect
           value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          placeholder="カテゴリで絞り込み"
-          className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-blue-500 outline-none"
+          onChange={setCategory}
+          type="all"
+          year={year}
+          allLabel="すべてのカテゴリ"
         />
         <span className="text-slate-500 text-sm self-center">{total.toLocaleString()}件</span>
       </div>

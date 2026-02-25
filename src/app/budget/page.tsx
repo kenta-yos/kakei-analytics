@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency, formatCurrencySigned } from "@/lib/utils";
 
-type BudgetItem = {
+type BudgetRow = {
   categoryName: string;
   allocation: number;
   carryover: number;
@@ -14,110 +14,188 @@ type BudgetItem = {
   hasBudget: boolean;
 };
 
+type CarryoverItem = {
+  categoryName: string;
+  prevTotalBudget: number;
+  prevActual: number;
+  carryover: number;
+};
+
+// 来月の年月を計算
+function nextYearMonth(y: number, m: number) {
+  return m === 12 ? { year: y + 1, month: 1 } : { year: y, month: m + 1 };
+}
+function prevYearMonth(y: number, m: number) {
+  return m === 1 ? { year: y - 1, month: 12 } : { year: y, month: m - 1 };
+}
+
 export default function BudgetPage() {
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [items, setItems] = useState<BudgetItem[]>([]);
+  // デフォルトは「来月の予算を立てる」
+  const next = nextYearMonth(now.getFullYear(), now.getMonth() + 1);
+  const [year, setYear] = useState(next.year);
+  const [month, setMonth] = useState(next.month);
+
+  // 編集中の値 { カテゴリ名 → { allocation, carryover } }
+  const [editMap, setEditMap] = useState<
+    Record<string, { allocation: number; carryover: number; enabled: boolean }>
+  >({});
+  const [categories, setCategories] = useState<string[]>([]);
+  const [prevMonthIncome, setPrevMonthIncome] = useState(0);
+  const [prevActuals, setPrevActuals] = useState<Record<string, number>>({});
+  const [existingBudgets, setExistingBudgets] = useState<BudgetRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [editMap, setEditMap] = useState<Record<string, { allocation: number; carryover: number }>>({});
 
-  const fetchBudgets = useCallback(async () => {
+  const prev = prevYearMonth(year, month);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/budgets?year=${year}&month=${month}`);
-      const json = await res.json();
-      setItems(json.data ?? []);
-      // edit map を初期化
-      const map: Record<string, { allocation: number; carryover: number }> = {};
-      (json.data ?? []).forEach((item: BudgetItem) => {
-        map[item.categoryName] = { allocation: item.allocation, carryover: item.carryover };
+      // 1. この月の既存予算 + 実績
+      const budgetRes = await fetch(`/api/budgets?year=${year}&month=${month}`);
+      const budgetJson = await budgetRes.json();
+      const existing: BudgetRow[] = budgetJson.data ?? [];
+      setExistingBudgets(existing);
+
+      // 2. 前月の繰越計算
+      const carryoverRes = await fetch(
+        `/api/budgets/carryover?year=${year}&month=${month}`
+      );
+      const carryoverJson = await carryoverRes.json();
+      const carryoverItems: CarryoverItem[] = carryoverJson.data ?? [];
+
+      // 3. 前月の収入を取得
+      const prevSummaryRes = await fetch(
+        `/api/summary?year=${prev.year}&month=${prev.month}`
+      );
+      const prevSummaryJson = await prevSummaryRes.json();
+      setPrevMonthIncome(prevSummaryJson.data?.totalIncome ?? 0);
+
+      // 4. 前月の実績（参考値）
+      const prevBudgetRes = await fetch(
+        `/api/budgets?year=${prev.year}&month=${prev.month}`
+      );
+      const prevBudgetJson = await prevBudgetRes.json();
+      const prevRows: BudgetRow[] = prevBudgetJson.data ?? [];
+      const actualsMap: Record<string, number> = {};
+      prevRows.forEach((r) => { actualsMap[r.categoryName] = r.actual; });
+      setPrevActuals(actualsMap);
+
+      // 5. この月に実際に使われているカテゴリ（= 実績がある or 予算設定済み）
+      const allCats = Array.from(
+        new Set([
+          ...existing.map((r) => r.categoryName),
+          ...carryoverItems.map((c) => c.categoryName),
+        ])
+      ).sort();
+      setCategories(allCats);
+
+      // 6. editMap を初期化
+      // 既存予算がある場合はそれを使う、なければ繰越を自動設定
+      const carryoverMap = new Map(
+        carryoverItems.map((c) => [c.categoryName, c.carryover])
+      );
+      const existingMap = new Map(
+        existing.filter((r) => r.hasBudget).map((r) => [r.categoryName, r])
+      );
+
+      const newEditMap: Record<
+        string,
+        { allocation: number; carryover: number; enabled: boolean }
+      > = {};
+      allCats.forEach((cat) => {
+        const ex = existingMap.get(cat);
+        if (ex) {
+          // 既存予算あり → そのまま
+          newEditMap[cat] = {
+            allocation: ex.allocation,
+            carryover: ex.carryover,
+            enabled: true,
+          };
+        } else {
+          // 繰越のみ自動設定（allocは0）
+          newEditMap[cat] = {
+            allocation: 0,
+            carryover: carryoverMap.get(cat) ?? 0,
+            enabled: (carryoverMap.get(cat) ?? 0) !== 0, // 繰越がある場合は自動ON
+          };
+        }
       });
-      setEditMap(map);
+      setEditMap(newEditMap);
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, prev.year, prev.month]);
 
-  useEffect(() => { fetchBudgets(); }, [fetchBudgets]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  function setAllocation(cat: string, val: number) {
+  function update(cat: string, key: "allocation" | "carryover" | "enabled", val: number | boolean) {
     setEditMap((prev) => ({
       ...prev,
-      [cat]: { ...(prev[cat] ?? { carryover: 0 }), allocation: val },
+      [cat]: { ...(prev[cat] ?? { allocation: 0, carryover: 0, enabled: false }), [key]: val },
     }));
   }
 
-  function setCarryover(cat: string, val: number) {
-    setEditMap((prev) => ({
-      ...prev,
-      [cat]: { ...(prev[cat] ?? { allocation: 0 }), carryover: val },
-    }));
+  // 前月実績をallocationに一括コピー
+  function fillFromPrevActuals() {
+    setEditMap((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((cat) => {
+        if (prevActuals[cat] !== undefined && prevActuals[cat] > 0) {
+          next[cat] = { ...next[cat], allocation: prevActuals[cat], enabled: true };
+        }
+      });
+      return next;
+    });
   }
 
   async function saveBudgets() {
     setSaving(true);
     setSaved(false);
     try {
-      const budgetItems = items.map((item) => {
-        const edit = editMap[item.categoryName] ?? { allocation: 0, carryover: 0 };
-        return {
-          categoryName: item.categoryName,
-          allocation: edit.allocation,
-          carryover: edit.carryover,
-        };
-      });
+      const items = Object.entries(editMap)
+        .filter(([, v]) => v.enabled)
+        .map(([cat, v]) => ({
+          categoryName: cat,
+          allocation: v.allocation,
+          carryover: v.carryover,
+        }));
+
       await fetch("/api/budgets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year, month, items: budgetItems }),
+        body: JSON.stringify({ year, month, items }),
       });
       setSaved(true);
-      await fetchBudgets();
+      await loadData();
     } finally {
       setSaving(false);
     }
   }
 
-  // 自動繰越: 前月の実績と予算から差額を計算してセット
-  async function autoCarryover() {
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const prevYear = month === 1 ? year - 1 : year;
-    const res = await fetch(`/api/budgets?year=${prevYear}&month=${prevMonth}`);
-    const json = await res.json();
-    const prevItems: BudgetItem[] = json.data ?? [];
-    const newEditMap = { ...editMap };
-    prevItems.forEach((prev) => {
-      if (prev.hasBudget) {
-        const carryover = prev.remaining; // 前月の残り（±）
-        newEditMap[prev.categoryName] = {
-          allocation: editMap[prev.categoryName]?.allocation ?? 0,
-          carryover,
-        };
-      }
-    });
-    setEditMap(newEditMap);
-  }
+  // 集計
+  const enabledItems = Object.entries(editMap).filter(([, v]) => v.enabled);
+  const totalAllocation = enabledItems.reduce((sum, [, v]) => sum + (v.allocation ?? 0), 0);
+  const totalCarryover = enabledItems.reduce((sum, [, v]) => sum + (v.carryover ?? 0), 0);
+  const totalBudget = totalAllocation + totalCarryover;
+  const unallocated = prevMonthIncome - totalAllocation;
+  const totalActual = existingBudgets.reduce((sum, r) => sum + r.actual, 0);
 
-  const totalAllocation = items.reduce((sum, item) => {
-    return sum + (editMap[item.categoryName]?.allocation ?? 0);
-  }, 0);
-  const totalCarryover = items.reduce((sum, item) => {
-    return sum + (editMap[item.categoryName]?.carryover ?? 0);
-  }, 0);
-  const totalActual = items.reduce((sum, item) => sum + item.actual, 0);
-
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
+  const actualMap = new Map(existingBudgets.map((r) => [r.categoryName, r.actual]));
 
   return (
     <div className="p-6">
+      {/* ヘッダー */}
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">予算管理</h1>
-          <p className="text-slate-400 text-sm mt-0.5">前月繰越 + 今月割り当て = 月次予算</p>
+          <p className="text-slate-400 text-sm mt-0.5">
+            {prev.year}年{prev.month}月の収入を {year}年{month}月の各予算に配分する
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -125,7 +203,7 @@ export default function BudgetPage() {
             onChange={(e) => setYear(Number(e.target.value))}
             className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700"
           >
-            {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
+            {Array.from({ length: 9 }, (_, i) => 2019 + i).map((y) => (
               <option key={y} value={y}>{y}年</option>
             ))}
           </select>
@@ -141,14 +219,22 @@ export default function BudgetPage() {
         </div>
       </div>
 
-      {/* サマリー */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
-        <Card>
-          <CardTitle>今月の割り当て合計</CardTitle>
-          <p className="text-xl font-bold text-blue-400">{formatCurrency(totalAllocation)}</p>
+      {/* 収入配分サマリー */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+        <Card className="border-green-800/40 bg-green-950/20">
+          <CardTitle>前月収入（配分元）</CardTitle>
+          <p className="text-xl font-bold text-green-400">{formatCurrency(prevMonthIncome)}</p>
+          <p className="text-xs text-slate-500 mt-1">{prev.year}年{prev.month}月の実収入</p>
         </Card>
         <Card>
-          <CardTitle>繰越合計</CardTitle>
+          <CardTitle>今月の新規割り当て</CardTitle>
+          <p className="text-xl font-bold text-blue-400">{formatCurrency(totalAllocation)}</p>
+          <p className={`text-xs mt-1 ${unallocated < 0 ? "text-red-400" : "text-slate-500"}`}>
+            未配分: {formatCurrencySigned(unallocated)}
+          </p>
+        </Card>
+        <Card>
+          <CardTitle>前月繰越合計</CardTitle>
           <p className={`text-xl font-bold ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
             {formatCurrencySigned(totalCarryover)}
           </p>
@@ -156,87 +242,149 @@ export default function BudgetPage() {
         <Card>
           <CardTitle>当月実績合計</CardTitle>
           <p className="text-xl font-bold text-white">{formatCurrency(totalActual)}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            予算合計 {formatCurrency(totalBudget)}
+          </p>
         </Card>
       </div>
 
+      {/* 未配分アラート */}
+      {unallocated < 0 && (
+        <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded-xl text-sm text-red-300">
+          ⚠ 配分額が前月収入を {formatCurrency(-unallocated)} 超過しています
+        </div>
+      )}
+      {unallocated > 0 && totalAllocation > 0 && (
+        <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800/50 rounded-xl text-sm text-blue-300">
+          💡 {formatCurrency(unallocated)} がまだ未配分です
+        </div>
+      )}
+
+      {/* メインテーブル */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <CardTitle>カテゴリ別予算設定</CardTitle>
-          <div className="flex gap-2">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <CardTitle>{year}年{month}月 カテゴリ別予算</CardTitle>
+          <div className="flex gap-2 flex-wrap">
             <button
-              onClick={autoCarryover}
+              onClick={fillFromPrevActuals}
               className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
             >
-              {prevYear}年{prevMonth}月の残りを自動繰越
+              前月実績で一括設定
             </button>
             <button
               onClick={saveBudgets}
               disabled={saving}
-              className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-medium"
+              className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-semibold"
             >
               {saving ? "保存中..." : "保存"}
             </button>
           </div>
         </div>
+
         {saved && <p className="text-green-400 text-xs mb-3">✓ 保存しました</p>}
 
         {loading ? (
-          <p className="text-slate-500 text-sm">読み込み中...</p>
-        ) : items.length === 0 ? (
-          <p className="text-slate-500 text-sm">
-            この月のデータがありません。先に CSV をインポートしてください。
+          <p className="text-slate-500 text-sm py-8 text-center">読み込み中...</p>
+        ) : categories.length === 0 ? (
+          <p className="text-slate-500 text-sm py-8 text-center">
+            CSVをインポートするとカテゴリが自動で表示されます
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="w-8">ON</th>
                   <th>カテゴリ</th>
+                  <th className="text-right">
+                    <span className="text-green-400">前月繰越</span>
+                    <span className="text-slate-600 text-xs ml-1">(自動)</span>
+                  </th>
                   <th className="text-right">今月割り当て</th>
-                  <th className="text-right">前月繰越</th>
                   <th className="text-right">合計予算</th>
-                  <th className="text-right">実績</th>
+                  <th className="text-right text-slate-400">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
+                  <th className="text-right">当月実績</th>
                   <th className="text-right">残り</th>
-                  <th className="w-32">進捗</th>
+                  <th className="w-28">進捗</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => {
-                  const edit = editMap[item.categoryName] ?? { allocation: 0, carryover: 0 };
-                  const totalBudget = edit.allocation + edit.carryover;
-                  const remaining = totalBudget - item.actual;
-                  const pct = totalBudget > 0 ? Math.min((item.actual / totalBudget) * 100, 100) : 0;
-                  const over = totalBudget > 0 && item.actual > totalBudget;
+                {categories.map((cat) => {
+                  const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
+                  const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
+                  const actual = actualMap.get(cat) ?? 0;
+                  const remaining = totalB - actual;
+                  const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
+                  const over = totalB > 0 && actual > totalB;
+                  const prevActual = prevActuals[cat] ?? 0;
 
                   return (
-                    <tr key={item.categoryName}>
-                      <td className="text-slate-300 font-medium">{item.categoryName}</td>
-                      <td className="text-right">
+                    <tr key={cat} className={edit.enabled ? "" : "opacity-40"}>
+                      {/* ON/OFF トグル */}
+                      <td>
                         <input
-                          type="number"
-                          value={edit.allocation}
-                          onChange={(e) => setAllocation(item.categoryName, Number(e.target.value))}
-                          className="w-28 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none"
+                          type="checkbox"
+                          checked={edit.enabled}
+                          onChange={(e) => update(cat, "enabled", e.target.checked)}
+                          className="w-4 h-4 accent-blue-500 cursor-pointer"
                         />
                       </td>
+                      <td className="font-medium text-slate-200">{cat}</td>
+
+                      {/* 前月繰越（読み取り専用 + 手動上書き可） */}
                       <td className="text-right">
                         <input
                           type="number"
                           value={edit.carryover}
-                          onChange={(e) => setCarryover(item.categoryName, Number(e.target.value))}
-                          className={`w-28 bg-slate-800 text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none ${edit.carryover >= 0 ? "text-green-400" : "text-red-400"}`}
+                          onChange={(e) => update(cat, "carryover", Number(e.target.value))}
+                          disabled={!edit.enabled}
+                          className={`w-28 bg-slate-800 text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-green-500 outline-none disabled:opacity-50 ${
+                            (edit.carryover ?? 0) >= 0 ? "text-green-400" : "text-red-400"
+                          }`}
                         />
                       </td>
-                      <td className="text-right text-white">{formatCurrency(totalBudget)}</td>
-                      <td className="text-right text-slate-300">{formatCurrency(item.actual)}</td>
-                      <td className={`text-right font-medium ${remaining < 0 ? "text-red-400" : "text-green-400"}`}>
-                        {formatCurrencySigned(remaining)}
+
+                      {/* 今月割り当て */}
+                      <td className="text-right">
+                        <input
+                          type="number"
+                          value={edit.allocation}
+                          onChange={(e) => update(cat, "allocation", Number(e.target.value))}
+                          disabled={!edit.enabled}
+                          className="w-28 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none disabled:opacity-50"
+                        />
                       </td>
+
+                      {/* 合計予算 */}
+                      <td className="text-right text-white font-medium">
+                        {edit.enabled ? formatCurrency(totalB) : "—"}
+                      </td>
+
+                      {/* 前月実績（参考） */}
+                      <td className="text-right text-slate-500 text-xs">
+                        {prevActual > 0 ? formatCurrency(prevActual) : "—"}
+                      </td>
+
+                      {/* 当月実績 */}
+                      <td className="text-right text-slate-300">
+                        {actual > 0 ? formatCurrency(actual) : "—"}
+                      </td>
+
+                      {/* 残り */}
+                      <td className={`text-right font-medium ${
+                        !edit.enabled ? "text-slate-600" : remaining < 0 ? "text-red-400" : "text-green-400"
+                      }`}>
+                        {edit.enabled && totalB > 0 ? formatCurrencySigned(remaining) : "—"}
+                      </td>
+
+                      {/* 進捗バー */}
                       <td>
-                        {totalBudget > 0 && (
+                        {edit.enabled && totalB > 0 && (
                           <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all ${over ? "bg-red-500" : pct > 80 ? "bg-yellow-500" : "bg-blue-500"}`}
+                              className={`h-full rounded-full transition-all ${
+                                over ? "bg-red-500" : pct > 80 ? "bg-yellow-500" : "bg-blue-500"
+                              }`}
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -245,10 +393,44 @@ export default function BudgetPage() {
                     </tr>
                   );
                 })}
+
+                {/* 合計行 */}
+                <tr className="border-t-2 border-slate-600 font-semibold">
+                  <td colSpan={2} className="text-slate-300 pt-3">合計</td>
+                  <td className={`text-right pt-3 ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {formatCurrencySigned(totalCarryover)}
+                  </td>
+                  <td className="text-right pt-3 text-blue-400">{formatCurrency(totalAllocation)}</td>
+                  <td className="text-right pt-3 text-white">{formatCurrency(totalBudget)}</td>
+                  <td className="text-right pt-3 text-slate-500 text-xs">
+                    {Object.values(prevActuals).reduce((s, v) => s + v, 0) > 0
+                      ? formatCurrency(Object.values(prevActuals).reduce((s, v) => s + v, 0))
+                      : "—"}
+                  </td>
+                  <td className="text-right pt-3 text-slate-300">{formatCurrency(totalActual)}</td>
+                  <td className={`text-right pt-3 font-medium ${
+                    totalBudget - totalActual < 0 ? "text-red-400" : "text-green-400"
+                  }`}>
+                    {totalBudget > 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
+                  </td>
+                  <td />
+                </tr>
               </tbody>
             </table>
           </div>
         )}
+      </Card>
+
+      {/* 凡例 */}
+      <Card className="mt-4">
+        <CardTitle>操作ガイド</CardTitle>
+        <ul className="text-xs text-slate-400 space-y-1">
+          <li>・<span className="text-white">ON チェック</span>: 予算管理するカテゴリをオンにする</li>
+          <li>・<span className="text-green-400">前月繰越</span>: 前月の残り（±）が自動入力されます。手動上書き可</li>
+          <li>・<span className="text-blue-400">今月割り当て</span>: 前月収入（{formatCurrency(prevMonthIncome)}）から配分する額を入力</li>
+          <li>・<span className="text-slate-300">前月実績（参考）</span>: ボタン「前月実績で一括設定」で割り当て欄に一括コピーできます</li>
+          <li>・予算を立てた後、当月中に実績が取り込まれると進捗バーが更新されます</li>
+        </ul>
       </Card>
     </div>
   );

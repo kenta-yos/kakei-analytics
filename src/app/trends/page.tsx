@@ -6,6 +6,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from "recharts";
+import CategorySelect from "@/components/ui/CategorySelect";
 
 type MonthlyPoint = {
   year: number;
@@ -164,11 +165,11 @@ export default function TrendsPage() {
           <Card>
             <div className="flex items-center gap-3 mb-3">
               <CardTitle>カテゴリ別トレンド</CardTitle>
-              <input
+                <CategorySelect
                 value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="bg-slate-800 text-white text-sm px-3 py-1.5 rounded-lg border border-slate-700 focus:border-blue-500 outline-none"
-                placeholder="カテゴリ名"
+                onChange={setSelectedCategory}
+                type="expense"
+                includeAll={false}
               />
             </div>
             <ResponsiveContainer width="100%" height={240}>

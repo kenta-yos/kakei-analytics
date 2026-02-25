@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       }
 
       case "asset": {
-        const data = await getAssetTrend(year ?? undefined);
+        const data = await getAssetTrend(year ?? undefined, month ?? undefined);
         return NextResponse.json({ data });
       }
 
@@ -157,9 +157,25 @@ async function getCategoryTrend(category: string) {
   }));
 }
 
-async function getAssetTrend(year?: number) {
-  const conditions = year ? [eq(assetSnapshots.year, year)] : [];
+async function getAssetTrend(year?: number, month?: number) {
+  if (year && month) {
+    // 各資産について「指定年月以前の最新スナップショット」を返す
+    // → 月に取引がなかった口座も最後に記録された残高で表示できる
+    const rows = await db.execute(
+      sql`
+        SELECT DISTINCT ON (asset_name)
+          id, asset_name, year, month,
+          opening_balance, closing_balance, asset_type, updated_at
+        FROM asset_snapshots
+        WHERE (year * 100 + month) <= ${year * 100 + month}
+        ORDER BY asset_name, (year * 100 + month) DESC
+      `
+    );
+    return rows.rows;
+  }
 
+  // year のみ指定: その年の全月分を返す（推移グラフ用）
+  const conditions = year ? [eq(assetSnapshots.year, year)] : [];
   const rows = await db
     .select()
     .from(assetSnapshots)
