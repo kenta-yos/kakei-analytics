@@ -26,10 +26,20 @@ const YEAR_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#a855f7", "#ec4899", "#14
 const ALL_YEARS = Array.from({ length: 8 }, (_, i) => 2019 + i);
 const getYearColor = (year: number) => YEAR_COLORS[ALL_YEARS.indexOf(year) % YEAR_COLORS.length];
 
+const LoadingChart = ({ height }: { height: number }) => (
+  <div className={`flex items-center justify-center text-slate-600 text-sm`} style={{ height }}>
+    読み込み中...
+  </div>
+);
+
 export default function TrendsPage() {
   const now = new Date();
   const allYears = ALL_YEARS;
-  const [selectedYears, setSelectedYears] = useState<number[]>([now.getFullYear(), now.getFullYear() - 1]);
+  const currentYear = now.getFullYear();
+  // デフォルト：直近3年
+  const [selectedYears, setSelectedYears] = useState<number[]>([
+    currentYear - 2, currentYear - 1, currentYear,
+  ]);
   const [trendData, setTrendData] = useState<MonthlyPoint[]>([]);
   const [catTrend, setCatTrend] = useState<CategoryPoint[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("食費");
@@ -60,7 +70,6 @@ export default function TrendsPage() {
     );
   }
 
-  // 月別データを Recharts 用に変換（月を横軸、年ごとのライン）
   const monthlyChartData = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
     const point: Record<string, number | string> = { month: `${m}月` };
@@ -94,7 +103,7 @@ export default function TrendsPage() {
       <Card className="mb-5">
         <CardTitle>表示する年を選択（複数選択可）</CardTitle>
         <div className="flex flex-wrap gap-2">
-          {allYears.map((y, i) => (
+          {allYears.map((y) => (
             <button
               key={y}
               onClick={() => toggleYear(y)}
@@ -111,13 +120,13 @@ export default function TrendsPage() {
         </div>
       </Card>
 
-      {loading ? (
-        <p className="text-slate-500">読み込み中...</p>
-      ) : (
-        <div className="space-y-4">
-          {/* 月別支出比較 */}
-          <Card>
-            <CardTitle>月別支出比較</CardTitle>
+      {/* グラフを常時レンダリング（loading中はプレースホルダー表示）
+          ※ CategorySelectをアンマウントさせないための構造 */}
+      <div className="space-y-4">
+        {/* 月別支出比較 */}
+        <Card>
+          <CardTitle>月別支出比較</CardTitle>
+          {loading ? <LoadingChart height={280} /> : (
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={monthlyChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -138,11 +147,13 @@ export default function TrendsPage() {
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          </Card>
+          )}
+        </Card>
 
-          {/* 月別純損益比較 */}
-          <Card>
-            <CardTitle>月別純損益比較</CardTitle>
+        {/* 月別純損益比較 */}
+        <Card>
+          <CardTitle>月別純損益比較</CardTitle>
+          {loading ? <LoadingChart height={240} /> : (
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={monthlyChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -161,19 +172,22 @@ export default function TrendsPage() {
                 ))}
               </BarChart>
             </ResponsiveContainer>
-          </Card>
+          )}
+        </Card>
 
-          {/* カテゴリ別トレンド */}
-          <Card>
-            <div className="flex items-center gap-3 mb-3">
-              <CardTitle>カテゴリ別トレンド</CardTitle>
-                <CategorySelect
-                value={selectedCategory}
-                onChange={setSelectedCategory}
-                type="expense"
-                includeAll={false}
-              />
-            </div>
+        {/* カテゴリ別トレンド
+            CategorySelectは常時マウントされており、カテゴリ一覧が保持される */}
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <CardTitle>カテゴリ別トレンド</CardTitle>
+            <CategorySelect
+              value={selectedCategory}
+              onChange={setSelectedCategory}
+              type="expense"
+              includeAll={false}
+            />
+          </div>
+          {loading ? <LoadingChart height={240} /> : (
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={catChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -193,11 +207,13 @@ export default function TrendsPage() {
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          </Card>
+          )}
+        </Card>
 
-          {/* 年次サマリー表 */}
-          <Card>
-            <CardTitle>年次比較サマリー</CardTitle>
+        {/* 年次サマリー表 */}
+        <Card>
+          <CardTitle>年次比較サマリー</CardTitle>
+          {loading ? <LoadingChart height={60} /> : (
             <table className="data-table">
               <thead>
                 <tr>
@@ -231,9 +247,9 @@ export default function TrendsPage() {
                 })}
               </tbody>
             </table>
-          </Card>
-        </div>
-      )}
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
