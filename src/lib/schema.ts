@@ -160,6 +160,40 @@ export const specialExpensesB = pgTable("special_expenses_b", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [index("special_expenses_b_year_month_idx").on(t.year, t.month)]);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 投資評価額テーブル（月次・商品別）
+// ─────────────────────────────────────────────────────────────────────────────
+export const investmentValuations = pgTable("investment_valuations", {
+  id: serial("id").primaryKey(),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  productName: text("product_name").notNull(), // 'iDeCo' | 'SBI投資信託'
+  marketValue: integer("market_value").notNull().default(0), // 評価額
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("inv_val_uniq").on(t.year, t.month, t.productName),
+  index("inv_val_year_month_idx").on(t.year, t.month),
+]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIRE計算設定テーブル（シミュレーション変数）
+// ─────────────────────────────────────────────────────────────────────────────
+export const fireSettings = pgTable("fire_settings", {
+  id: integer("id").primaryKey().default(1),
+  currentAge: integer("current_age").notNull().default(30),
+  // リターン率・インフレ率は basis points × 10 で保存 (500 = 5.00%)
+  expectedReturnRate: integer("expected_return_rate").notNull().default(500),
+  inflationRate: integer("inflation_rate").notNull().default(200),
+  fireMultiplier: integer("fire_multiplier").notNull().default(25),
+  monthlyExpenseOverride: integer("monthly_expense_override"), // null = 自動
+  monthlySavingsOverride: integer("monthly_savings_override"), // null = 自動
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type InvestmentValuation = typeof investmentValuations.$inferSelect;
+export type NewInvestmentValuation = typeof investmentValuations.$inferInsert;
+export type FireSettings = typeof fireSettings.$inferSelect;
+
 export type StandardBudget = typeof standardBudgets.$inferSelect;
 export type NewStandardBudget = typeof standardBudgets.$inferInsert;
 export type StandardBudgetSettings = typeof standardBudgetSettings.$inferSelect;

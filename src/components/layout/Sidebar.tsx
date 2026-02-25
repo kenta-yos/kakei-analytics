@@ -11,6 +11,8 @@ const navItems = [
   { href: "/balance-sheet", label: "貸借対照表", icon: "⊞" },
   { href: "/analytics", label: "分析", icon: "⊕" },
   { href: "/trends", label: "推移グラフ", icon: "↗" },
+  { href: "/investment", label: "投資管理", icon: "◈" },
+  { href: "/fire", label: "FIRE計算機", icon: "🔥" },
   { href: "/standard-budget", label: "標準予算", icon: "⊙" },
   { href: "/special-expense", label: "特別経費B", icon: "★" },
   { href: "/import", label: "CSVインポート", icon: "↑" },
