@@ -27,7 +27,7 @@ const TYPE_LABELS: Record<string, string> = {
 export default function BalanceSheetPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() > 0 ? now.getMonth() : 12);
+  const [month, setMonth] = useState(now.getMonth() + 1);
   const [assets, setAssets] = useState<AssetSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
 
