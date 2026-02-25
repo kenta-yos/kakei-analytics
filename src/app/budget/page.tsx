@@ -21,6 +21,30 @@ type CarryoverItem = {
   carryover: number;
 };
 
+// エクセルと同じカテゴリ表示順（年別固定）
+const CATEGORY_ORDER_BY_YEAR: Record<string, string[]> = {
+  "2019": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "衣服・美容費", "生活費", "医療費", "光熱費", "通信費", "法律", "教育ビジネス", "特別経費M", "特別経費B", "旅行・帰省"],
+  "2020": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "衣服・美容費", "生活費", "医療費", "家賃", "家賃補助", "通信費", "法律", "教育ビジネス", "特別経費M", "特別経費B", "旅行・帰省"],
+  "2021": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "衣服・美容費", "生活費", "医療費", "家賃", "家賃補助", "通信費", "法律・教育", "特別経費M", "特別経費B", "脱毛", "旅行・帰省", "投資損益", "貯蓄"],
+  "2022": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "美容費", "生活費", "医療費", "家賃", "通信費", "テニス", "特別経費M", "特別経費B", "ファッション", "旅行・帰省", "投資損益", "貯蓄（投信）"],
+  "2023": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "美容費", "生活費", "医療費", "家賃", "通信費", "特別経費S", "特別経費B", "ファッション", "旅行・帰省", "FjordBootCamp", "投資損益", "貯蓄", "貯蓄（投信）", "会社立替"],
+  "2024": ["食費", "研究", "カフェ", "娯楽費", "交際費・贅沢費", "交通費", "美容費", "生活消耗品費", "医療費", "家賃・光熱費", "通信費", "特別経費S", "特別経費B", "ファッション", "旅行・帰省", "FjordBootCamp", "投資損益", "貯蓄", "貯蓄（投信）", "会社立替"],
+  "2025": ["食費", "研究", "カフェ", "娯楽費", "交際費・贅沢費", "交通費", "美容費", "生活消耗品費", "医療費", "家賃・光熱費", "通信費", "特別経費S", "特別経費B", "ファッション", "旅行・帰省", "同棲費", "貯蓄", "貯蓄（投信）", "会社立替"],
+  "2026": ["食費", "研究", "カフェ", "娯楽費", "交際費・贅沢費", "交通費", "美容費", "生活消耗品費", "医療費", "家賃・光熱費", "通信費", "特別経費S", "特別経費B", "ファッション", "旅行・帰省", "貯蓄", "貯蓄（投信）", "会社立替"],
+};
+
+function sortByExcelOrder(cats: string[], year: number): string[] {
+  const order = CATEGORY_ORDER_BY_YEAR[String(year)] ?? CATEGORY_ORDER_BY_YEAR["2026"];
+  return [...cats].sort((a, b) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b, "ja");
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 // 来月の年月を計算
 function nextYearMonth(y: number, m: number) {
   return m === 12 ? { year: y + 1, month: 1 } : { year: y, month: m + 1 };
@@ -42,6 +66,8 @@ export default function BudgetPage() {
   >({});
   const [categories, setCategories] = useState<string[]>([]);
   const [prevMonthIncome, setPrevMonthIncome] = useState(0);
+  const [prevIncomeBreakdown, setPrevIncomeBreakdown] = useState<{ category: string; income: number }[]>([]);
+  const [showIncomeBreakdown, setShowIncomeBreakdown] = useState(false);
   const [prevActuals, setPrevActuals] = useState<Record<string, number>>({});
   const [existingBudgets, setExistingBudgets] = useState<BudgetRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,12 +92,18 @@ export default function BudgetPage() {
       const carryoverJson = await carryoverRes.json();
       const carryoverItems: CarryoverItem[] = carryoverJson.data ?? [];
 
-      // 3. 前月の収入を取得
+      // 3. 前月の収入を取得（内訳含む）
       const prevSummaryRes = await fetch(
         `/api/summary?year=${prev.year}&month=${prev.month}`
       );
       const prevSummaryJson = await prevSummaryRes.json();
       setPrevMonthIncome(prevSummaryJson.data?.totalIncome ?? 0);
+      const cats = prevSummaryJson.data?.categories ?? {};
+      const breakdown = Object.entries(cats)
+        .filter(([, v]) => (v as { income: number }).income > 0)
+        .map(([cat, v]) => ({ category: cat, income: (v as { income: number }).income }))
+        .sort((a, b) => b.income - a.income);
+      setPrevIncomeBreakdown(breakdown);
 
       // 4. 前月の実績（参考値）
       const prevBudgetRes = await fetch(
@@ -85,13 +117,13 @@ export default function BudgetPage() {
 
       // 5. この月に実際に使われているカテゴリ
       // 来月など実績がない月の場合、前月実績カテゴリをベースにする
-      const allCats = Array.from(
+      const allCats = sortByExcelOrder(Array.from(
         new Set([
           ...existing.map((r) => r.categoryName),
           ...carryoverItems.map((c) => c.categoryName),
           ...prevRows.map((r) => r.categoryName), // 前月実績ベース
         ])
-      ).sort();
+      ), year);
       setCategories(allCats);
 
       // 6. editMap を初期化
@@ -221,46 +253,89 @@ export default function BudgetPage() {
         </div>
       </div>
 
-      {/* 収入配分サマリー */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <Card className="border-green-800/40 bg-green-950/20">
-          <CardTitle>前月収入（配分元）</CardTitle>
-          <p className="text-xl font-bold text-green-400">{formatCurrency(prevMonthIncome)}</p>
-          <p className="text-xs text-slate-500 mt-1">{prev.year}年{prev.month}月の実収入</p>
-        </Card>
-        <Card>
-          <CardTitle>今月の新規割り当て</CardTitle>
-          <p className="text-xl font-bold text-blue-400">{formatCurrency(totalAllocation)}</p>
-          <p className={`text-xs mt-1 ${unallocated < 0 ? "text-red-400" : "text-slate-500"}`}>
-            未配分: {formatCurrencySigned(unallocated)}
-          </p>
-        </Card>
+      {/* 前月収入 + 配分パネル */}
+      <Card className="mb-4 border-green-800/40 bg-green-950/10">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          {/* 左: 前月収入 */}
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-slate-400 text-sm">{prev.year}年{prev.month}月の収入</span>
+              {prevIncomeBreakdown.length > 0 && (
+                <button
+                  onClick={() => setShowIncomeBreakdown(!showIncomeBreakdown)}
+                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition"
+                >
+                  内訳 {showIncomeBreakdown ? "▲" : "▼"}
+                </button>
+              )}
+            </div>
+            <p className="text-3xl sm:text-4xl font-bold text-green-400">{formatCurrency(prevMonthIncome)}</p>
+          </div>
+
+          {/* 右: 未配分残り */}
+          <div className="text-right">
+            <p className="text-slate-400 text-sm mb-1">未配分残り</p>
+            {unallocated === 0 ? (
+              <p className="text-2xl sm:text-3xl font-bold text-green-400">✓ 配分完了！</p>
+            ) : (
+              <p className={`text-2xl sm:text-3xl font-bold ${unallocated < 0 ? "text-red-400" : "text-yellow-300"}`}>
+                {formatCurrencySigned(unallocated)}
+              </p>
+            )}
+            <p className="text-xs text-slate-500 mt-1">配分済み {formatCurrency(totalAllocation)}</p>
+          </div>
+        </div>
+
+        {/* 配分進捗バー */}
+        <div className="mt-4">
+          <div className="flex justify-between text-xs text-slate-500 mb-1.5">
+            <span>0</span>
+            <span>{prevMonthIncome > 0 ? Math.min(Math.round((totalAllocation / prevMonthIncome) * 100), 100) : 0}% 配分済み</span>
+            <span>{formatCurrency(prevMonthIncome)}</span>
+          </div>
+          <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                unallocated < 0 ? "bg-red-500" : unallocated === 0 ? "bg-green-500" : "bg-blue-500"
+              }`}
+              style={{ width: `${prevMonthIncome > 0 ? Math.min((totalAllocation / prevMonthIncome) * 100, 100) : 0}%` }}
+            />
+          </div>
+        </div>
+
+        {/* 収入内訳（展開時） */}
+        {showIncomeBreakdown && prevIncomeBreakdown.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-700/60">
+            <p className="text-xs text-slate-500 mb-2">収入内訳</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1">
+              {prevIncomeBreakdown.map(({ category, income }) => (
+                <div key={category} className="flex justify-between text-sm py-0.5">
+                  <span className="text-slate-400">{category}</span>
+                  <span className="text-green-400 font-medium">{formatCurrency(income)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* サブ指標 */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
         <Card>
           <CardTitle>前月繰越合計</CardTitle>
-          <p className={`text-xl font-bold ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <p className={`text-lg font-bold ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
             {formatCurrencySigned(totalCarryover)}
           </p>
         </Card>
         <Card>
+          <CardTitle>合計予算</CardTitle>
+          <p className="text-lg font-bold text-white">{formatCurrency(totalBudget)}</p>
+        </Card>
+        <Card>
           <CardTitle>当月実績合計</CardTitle>
-          <p className="text-xl font-bold text-white">{formatCurrency(totalActual)}</p>
-          <p className="text-xs text-slate-500 mt-1">
-            予算合計 {formatCurrency(totalBudget)}
-          </p>
+          <p className="text-lg font-bold text-slate-300">{formatCurrency(totalActual)}</p>
         </Card>
       </div>
-
-      {/* 未配分アラート */}
-      {unallocated < 0 && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded-xl text-sm text-red-300">
-          ⚠ 配分額が前月収入を {formatCurrency(-unallocated)} 超過しています
-        </div>
-      )}
-      {unallocated > 0 && totalAllocation > 0 && (
-        <div className="mb-4 p-3 bg-blue-900/20 border border-blue-800/50 rounded-xl text-sm text-blue-300">
-          💡 {formatCurrency(unallocated)} がまだ未配分です
-        </div>
-      )}
 
       {/* メインテーブル */}
       <Card>
@@ -427,11 +502,11 @@ export default function BudgetPage() {
       <Card className="mt-4">
         <CardTitle>操作ガイド</CardTitle>
         <ul className="text-xs text-slate-400 space-y-1">
+          <li>・<span className="text-green-400">前月収入</span>を見ながら各カテゴリに予算を割り振る。未配分残りが 0 になるまで入力する</li>
           <li>・<span className="text-white">ON チェック</span>: 予算管理するカテゴリをオンにする</li>
           <li>・<span className="text-green-400">前月繰越</span>: 前月の残り（±）が自動入力されます。手動上書き可</li>
-          <li>・<span className="text-blue-400">今月割り当て</span>: 前月収入（{formatCurrency(prevMonthIncome)}）から配分する額を入力</li>
-          <li>・<span className="text-slate-300">前月実績（参考）</span>: ボタン「前月実績で一括設定」で割り当て欄に一括コピーできます</li>
-          <li>・予算を立てた後、当月中に実績が取り込まれると進捗バーが更新されます</li>
+          <li>・<span className="text-blue-400">今月割り当て</span>: 前月収入から配分する額を入力（リアルタイムで未配分残りに反映）</li>
+          <li>・<span className="text-slate-300">前月実績で一括設定</span>: 前月の実績額を割り当て欄に一括コピーします（参考値）</li>
         </ul>
       </Card>
     </div>

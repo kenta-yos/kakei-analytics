@@ -41,23 +41,14 @@ export async function GET(req: NextRequest) {
 
     const actualMap = new Map(actuals.map((a) => [a.category, Number(a.actual ?? 0)]));
 
-    // その月に存在するカテゴリ（予算未設定のものも含める）
-    const allCategories = await db
-      .selectDistinct({ category: transactions.category })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.year, year),
-          eq(transactions.month, month),
-          eq(transactions.type, "支出"),
-          ne(transactions.type, "振替")
-        )
-      )
-      .orderBy(transactions.category);
-
     const budgetMap = new Map(budgetRows.map((b) => [b.categoryName, b]));
 
-    const result = allCategories.map(({ category }) => {
+    // 予算レコードがあるカテゴリ + 取引があるカテゴリ を合わせる
+    const txCatSet = new Set(actuals.map((a) => a.category));
+    budgetRows.forEach((b) => txCatSet.add(b.categoryName));
+    const allCats = Array.from(txCatSet).sort();
+
+    const result = allCats.map((category) => {
       const budget = budgetMap.get(category);
       const actual = actualMap.get(category) ?? 0;
       return {
