@@ -43,7 +43,7 @@ export default function ImportPage() {
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-white mb-1">CSV インポート</h1>
+      <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">CSV インポート</h1>
       <p className="text-slate-400 text-sm mb-6">
         マネーフォワード等のアプリから出力した CSV をアップロードしてください。<br />
         2019年以降のデータが取り込まれます。重複データは自動スキップされます。

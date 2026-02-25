@@ -65,10 +65,10 @@ export default function BalanceSheetPage() {
   const netAssets = totalAssets - totalLiabilities;
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">貸借対照表</h1>
+          <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">貸借対照表</h1>
           <p className="text-slate-400 text-sm mt-0.5">月末時点の資産・負債・純資産</p>
         </div>
         <div className="flex items-center gap-2">
@@ -88,18 +88,18 @@ export default function BalanceSheetPage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
         <Card>
           <CardTitle>資産合計</CardTitle>
-          <p className="text-2xl font-bold text-blue-400">{formatCurrency(totalAssets)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-blue-400">{formatCurrency(totalAssets)}</p>
         </Card>
         <Card>
           <CardTitle>負債合計</CardTitle>
-          <p className="text-2xl font-bold text-red-400">{formatCurrency(totalLiabilities)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(totalLiabilities)}</p>
         </Card>
         <Card>
           <CardTitle>純資産</CardTitle>
-          <p className={`text-2xl font-bold ${netAssets >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <p className={`text-xl sm:text-2xl font-bold ${netAssets >= 0 ? "text-green-400" : "text-red-400"}`}>
             {formatCurrency(netAssets)}
           </p>
         </Card>
@@ -147,7 +147,7 @@ export default function BalanceSheetPage() {
             {grouped.credit.length > 0 ? (
               <Card>
                 <div className="flex justify-between items-center mb-2">
-                  <CardTitle>クレジットカード未払い</CardTitle>
+                  <CardTitle>負債</CardTitle>
                   <span className="text-red-400 font-semibold text-sm">{formatCurrency(totalLiabilities)}</span>
                 </div>
                 <table className="data-table">

@@ -82,9 +82,9 @@ export default function TrendsPage() {
   });
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-white">推移グラフ</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-white">推移グラフ</h1>
         <p className="text-slate-400 text-sm mt-0.5">年比較・トレンド分析</p>
       </div>
 

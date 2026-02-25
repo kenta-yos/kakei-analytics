@@ -190,11 +190,11 @@ export default function BudgetPage() {
   const actualMap = new Map(existingBudgets.map((r) => [r.categoryName, r.actual]));
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* ヘッダー */}
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">予算管理</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">予算管理</h1>
           <p className="text-slate-400 text-sm mt-0.5">
             {prev.year}年{prev.month}月の収入を {year}年{month}月の各予算に配分する
           </p>
@@ -298,16 +298,16 @@ export default function BudgetPage() {
                 <tr>
                   <th className="w-8">ON</th>
                   <th>カテゴリ</th>
-                  <th className="text-right">
+                  <th className="text-right hidden sm:table-cell">
                     <span className="text-green-400">前月繰越</span>
                     <span className="text-slate-600 text-xs ml-1">(自動)</span>
                   </th>
                   <th className="text-right">今月割り当て</th>
                   <th className="text-right">合計予算</th>
-                  <th className="text-right text-slate-400">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
+                  <th className="text-right hidden sm:table-cell text-slate-400">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
                   <th className="text-right">当月実績</th>
                   <th className="text-right">残り</th>
-                  <th className="w-28">進捗</th>
+                  <th className="w-28 hidden md:table-cell">進捗</th>
                 </tr>
               </thead>
               <tbody>
@@ -334,13 +334,13 @@ export default function BudgetPage() {
                       <td className="font-medium text-slate-200">{cat}</td>
 
                       {/* 前月繰越（読み取り専用 + 手動上書き可） */}
-                      <td className="text-right">
+                      <td className="text-right hidden sm:table-cell">
                         <input
                           type="number"
                           value={edit.carryover}
                           onChange={(e) => update(cat, "carryover", Number(e.target.value))}
                           disabled={!edit.enabled}
-                          className={`w-28 bg-slate-800 text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-green-500 outline-none disabled:opacity-50 ${
+                          className={`w-24 bg-slate-800 text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-green-500 outline-none disabled:opacity-50 ${
                             (edit.carryover ?? 0) >= 0 ? "text-green-400" : "text-red-400"
                           }`}
                         />
@@ -353,7 +353,7 @@ export default function BudgetPage() {
                           value={edit.allocation}
                           onChange={(e) => update(cat, "allocation", Number(e.target.value))}
                           disabled={!edit.enabled}
-                          className="w-28 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none disabled:opacity-50"
+                          className="w-20 sm:w-24 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none disabled:opacity-50"
                         />
                       </td>
 
@@ -363,7 +363,7 @@ export default function BudgetPage() {
                       </td>
 
                       {/* 前月実績（参考） */}
-                      <td className="text-right text-slate-500 text-xs">
+                      <td className="text-right text-slate-500 text-xs hidden sm:table-cell">
                         {prevActual > 0 ? formatCurrency(prevActual) : "—"}
                       </td>
 
@@ -380,7 +380,7 @@ export default function BudgetPage() {
                       </td>
 
                       {/* 進捗バー */}
-                      <td>
+                      <td className="hidden md:table-cell">
                         {edit.enabled && totalB > 0 && (
                           <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                             <div
@@ -399,12 +399,12 @@ export default function BudgetPage() {
                 {/* 合計行 */}
                 <tr className="border-t-2 border-slate-600 font-semibold">
                   <td colSpan={2} className="text-slate-300 pt-3">合計</td>
-                  <td className={`text-right pt-3 ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  <td className={`text-right pt-3 hidden sm:table-cell ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
                     {formatCurrencySigned(totalCarryover)}
                   </td>
                   <td className="text-right pt-3 text-blue-400">{formatCurrency(totalAllocation)}</td>
                   <td className="text-right pt-3 text-white">{formatCurrency(totalBudget)}</td>
-                  <td className="text-right pt-3 text-slate-500 text-xs">
+                  <td className="text-right pt-3 text-slate-500 text-xs hidden sm:table-cell">
                     {Object.values(prevActuals).reduce((s, v) => s + v, 0) > 0
                       ? formatCurrency(Object.values(prevActuals).reduce((s, v) => s + v, 0))
                       : "—"}
@@ -415,7 +415,7 @@ export default function BudgetPage() {
                   }`}>
                     {totalBudget > 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
                   </td>
-                  <td />
+                  <td className="hidden md:table-cell" />
                 </tr>
               </tbody>
             </table>

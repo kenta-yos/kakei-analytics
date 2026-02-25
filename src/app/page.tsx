@@ -94,11 +94,11 @@ export default async function DashboardPage() {
     .reduce((sum, a) => sum + Math.abs(a.closingBalance), 0);
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* ヘッダー */}
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">{data.year}年{data.month}月</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">{data.year}年{data.month}月</h1>
           <p className="text-slate-400 text-sm mt-0.5">ダッシュボード</p>
         </div>
         <Link
@@ -113,21 +113,21 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Card>
           <CardTitle>収入</CardTitle>
-          <p className="text-2xl font-bold text-green-400">{formatCurrency(data.totalIncome)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(data.totalIncome)}</p>
         </Card>
         <Card>
           <CardTitle>支出</CardTitle>
-          <p className="text-2xl font-bold text-red-400">{formatCurrency(data.totalExpense)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(data.totalExpense)}</p>
         </Card>
         <Card>
           <CardTitle>収支</CardTitle>
-          <p className={`text-2xl font-bold ${netIncome >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <p className={`text-xl sm:text-2xl font-bold ${netIncome >= 0 ? "text-green-400" : "text-red-400"}`}>
             {formatCurrencySigned(netIncome)}
           </p>
         </Card>
         <Card>
           <CardTitle>純資産（推定）</CardTitle>
-          <p className="text-2xl font-bold text-blue-400">
+          <p className="text-xl sm:text-2xl font-bold text-blue-400">
             {formatCurrency(totalAssets - totalLiabilities)}
           </p>
         </Card>

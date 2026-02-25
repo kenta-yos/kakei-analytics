@@ -51,10 +51,10 @@ export default function PLPage() {
   );
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">損益計算書</h1>
+          <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">損益計算書</h1>
           <p className="text-slate-400 text-sm mt-0.5">振替・除外項目を除いた実際の収支</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -107,18 +107,18 @@ function MonthlyPL({ detail }: { detail: MonthlySummary }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <Card>
           <CardTitle>収入合計</CardTitle>
-          <p className="text-2xl font-bold text-green-400">{formatCurrency(detail.totalIncome)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(detail.totalIncome)}</p>
         </Card>
         <Card>
           <CardTitle>支出合計</CardTitle>
-          <p className="text-2xl font-bold text-red-400">{formatCurrency(detail.totalExpense)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(detail.totalExpense)}</p>
         </Card>
         <Card>
           <CardTitle>当期純損益</CardTitle>
-          <p className={`text-2xl font-bold ${detail.netIncome >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <p className={`text-xl sm:text-2xl font-bold ${detail.netIncome >= 0 ? "text-green-400" : "text-red-400"}`}>
             {formatCurrencySigned(detail.netIncome)}
           </p>
         </Card>
@@ -179,18 +179,18 @@ function YearlyPL({
 }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <Card>
           <CardTitle>{year}年 収入合計</CardTitle>
-          <p className="text-2xl font-bold text-green-400">{formatCurrency(yearTotal.income)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(yearTotal.income)}</p>
         </Card>
         <Card>
           <CardTitle>{year}年 支出合計</CardTitle>
-          <p className="text-2xl font-bold text-red-400">{formatCurrency(yearTotal.expense)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(yearTotal.expense)}</p>
         </Card>
         <Card>
           <CardTitle>{year}年 純損益</CardTitle>
-          <p className={`text-2xl font-bold ${yearTotal.income - yearTotal.expense >= 0 ? "text-green-400" : "text-red-400"}`}>
+          <p className={`text-xl sm:text-2xl font-bold ${yearTotal.income - yearTotal.expense >= 0 ? "text-green-400" : "text-red-400"}`}>
             {formatCurrencySigned(yearTotal.income - yearTotal.expense)}
           </p>
         </Card>

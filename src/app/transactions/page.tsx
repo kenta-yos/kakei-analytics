@@ -43,8 +43,8 @@ export default function TransactionsPage() {
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold text-white mb-5">取引明細</h1>
+    <div className="p-4 sm:p-6">
+      <h1 className="text-xl sm:text-2xl font-bold text-white mb-5">取引明細</h1>
 
       {/* フィルター */}
       <div className="flex flex-wrap gap-3 mb-5">
@@ -87,27 +87,31 @@ export default function TransactionsPage() {
                 <thead>
                   <tr>
                     <th>日付</th>
-                    <th>種別</th>
-                    <th>カテゴリ</th>
+                    <th className="hidden sm:table-cell">種別</th>
+                    <th className="hidden sm:table-cell">カテゴリ</th>
                     <th>項目名</th>
                     <th className="text-right">金額</th>
-                    <th>支払手段</th>
-                    <th>メモ</th>
+                    <th className="hidden md:table-cell">支払手段</th>
+                    <th className="hidden lg:table-cell">メモ</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.map((tx) => (
                     <tr key={tx.id}>
                       <td className="text-slate-500 text-xs whitespace-nowrap">{tx.date}</td>
-                      <td>
+                      <td className="hidden sm:table-cell">
                         <span className={`text-xs px-1.5 py-0.5 rounded ${
                           tx.type === "収入" ? "bg-green-900/50 text-green-400" :
                           tx.type === "振替" ? "bg-slate-700 text-slate-400" :
                           "bg-red-900/50 text-red-400"
                         }`}>{tx.type}</span>
                       </td>
-                      <td className="text-slate-400 text-sm">{tx.category}</td>
-                      <td className="text-slate-300 text-sm">{tx.itemName}</td>
+                      <td className="hidden sm:table-cell text-slate-400 text-sm">{tx.category}</td>
+                      <td className="text-slate-300 text-sm">
+                        <div>{tx.itemName}</div>
+                        {/* モバイルでカテゴリをサブテキストで表示 */}
+                        <div className="sm:hidden text-xs text-slate-500">{tx.category}</div>
+                      </td>
                       <td className={`text-right font-medium text-sm ${
                         tx.type === "収入" ? "text-green-400" :
                         tx.type === "振替" ? "text-slate-400" :
@@ -117,8 +121,8 @@ export default function TransactionsPage() {
                           ? `+${formatCurrency(tx.incomeAmount)}`
                           : formatCurrency(tx.expenseAmount)}
                       </td>
-                      <td className="text-slate-500 text-xs">{tx.assetName}</td>
-                      <td className="text-slate-500 text-xs max-w-32 truncate">{tx.memo}</td>
+                      <td className="hidden md:table-cell text-slate-500 text-xs">{tx.assetName}</td>
+                      <td className="hidden lg:table-cell text-slate-500 text-xs max-w-32 truncate">{tx.memo}</td>
                     </tr>
                   ))}
                   {data.length === 0 && (

@@ -1,20 +1,22 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Sidebar from "@/components/layout/Sidebar";
+import ClientLayout from "@/components/layout/ClientLayout";
 
 export const metadata: Metadata = {
   title: "家計 Analytics",
   description: "Strategic Household Finance Management",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ja">
-      <body className="flex min-h-screen bg-slate-950">
-        <Sidebar />
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
+      <body className="bg-slate-950">
+        <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
   );
