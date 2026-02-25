@@ -6,7 +6,7 @@ import {
   parseAssetReport,
   aggregateAssetSnapshots,
 } from "@/lib/csv-parser";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 export const maxDuration = 60; // Vercel Pro: 60s
 
@@ -33,8 +33,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "取引データが見つかりませんでした" }, { status: 400 });
       }
 
-      // バッチで挿入（ON CONFLICT DO NOTHING で重複スキップ）
-      // 重複判定: date + type + category + itemName + amount + assetName + expenseAmount
+      // CSV に含まれる年月を特定し、対象月の既存データを削除（冪等インポート）
+      // 同じCSVを何度インポートしても重複しない
+      const yearMonths = [...new Set(parsed.map((t) => `${t.year}-${t.month}`))];
+      for (const ym of yearMonths) {
+        const [y, m] = ym.split("-").map(Number);
+        await db.delete(transactions)
+          .where(and(eq(transactions.year, y), eq(transactions.month, m)));
+      }
+
+      // バッチで一括INSERT
       const BATCH = 500;
       for (let i = 0; i < parsed.length; i += BATCH) {
         const batch = parsed.slice(i, i + BATCH);
@@ -54,13 +62,7 @@ export async function POST(req: NextRequest) {
           excludeFromPl: t.excludeFromPl,
         }));
 
-        // drizzle の insertions（重複は無視）
-        await db
-          .insert(transactions)
-          .values(values)
-          .onConflictDoNothing()
-          .catch(() => {/* ignore */});
-
+        await db.insert(transactions).values(values);
         txInserted += batch.length;
       }
     }

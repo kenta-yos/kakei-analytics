@@ -46,7 +46,7 @@ export default function ImportPage() {
       <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">CSV インポート</h1>
       <p className="text-slate-400 text-sm mb-6">
         マネーフォワード等のアプリから出力した CSV をアップロードしてください。<br />
-        2019年以降のデータが取り込まれます。重複データは自動スキップされます。
+        2019年以降のデータが取り込まれます。同じ月のCSVを再インポートしても重複しません（上書き）。
       </p>
 
       <div className="space-y-4 mb-6">
