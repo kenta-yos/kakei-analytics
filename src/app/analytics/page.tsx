@@ -3,11 +3,9 @@ import { useState, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
-import GeminiUsageBadge from "@/components/ui/GeminiUsageBadge";
-import CategorySelect from "@/components/ui/CategorySelect";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, Legend,
+  Tooltip, ResponsiveContainer,
 } from "recharts";
 import { getCategoryColor } from "@/lib/utils";
 
@@ -23,10 +21,23 @@ export default function AnalyticsPage() {
   const [payData, setPayData] = useState<PaymentItem[]>([]);
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [aiResult, setAiResult] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState("");
+
+  // 比較分析ステート
+  const [cmpP1Year, setCmpP1Year] = useState(now.getFullYear() - 1);
+  const [cmpP1Month, setCmpP1Month] = useState<number | "">("");
+  const [cmpP2Year, setCmpP2Year] = useState(now.getFullYear());
+  const [cmpP2Month, setCmpP2Month] = useState<number | "">(now.getMonth() + 1);
+  const [cmpData, setCmpData] = useState<{
+    comparison: Array<{ category: string; amount1: number; amount2: number; diff: number; diffPct: number | null }>;
+    summary: { total1: number; total2: number };
+  } | null>(null);
+  const [cmpLoading, setCmpLoading] = useState(false);
+  const [cmpAiLoading, setCmpAiLoading] = useState(false);
+  const [cmpAiResult, setCmpAiResult] = useState("");
+  const [cmpAiError, setCmpAiError] = useState("");
+
+  const cmpLabel1 = `${cmpP1Year}年${cmpP1Month !== "" ? cmpP1Month + "月" : ""}`;
+  const cmpLabel2 = `${cmpP2Year}年${cmpP2Month !== "" ? cmpP2Month + "月" : ""}`;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -52,31 +63,49 @@ export default function AnalyticsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  async function runAI() {
-    if (!aiPrompt.trim()) return;
-    setAiLoading(true);
-    setAiError("");
-    setAiResult("");
+  async function runComparison() {
+    setCmpLoading(true);
+    setCmpData(null);
+    setCmpAiResult("");
     try {
-      const context = JSON.stringify({
-        period: month !== "" ? `${year}年${month}月` : `${year}年`,
-        categoryBreakdown: catData.slice(0, 10),
-        paymentMethods: payData.slice(0, 6),
-        topItems: topItems.slice(0, 10),
-      }, null, 2);
+      const params = new URLSearchParams({
+        type: "compare",
+        p1_year: String(cmpP1Year),
+        p2_year: String(cmpP2Year),
+      });
+      if (cmpP1Month !== "") params.set("p1_month", String(cmpP1Month));
+      if (cmpP2Month !== "") params.set("p2_month", String(cmpP2Month));
+      const res = await fetch(`/api/analytics?${params}`);
+      const json = await res.json();
+      setCmpData(json.data ?? null);
+    } finally {
+      setCmpLoading(false);
+    }
+  }
+
+  async function runCmpAI() {
+    if (!cmpData) return;
+    setCmpAiLoading(true);
+    setCmpAiError("");
+    setCmpAiResult("");
+    try {
+      const topDiffs = cmpData.comparison
+        .filter((r) => r.amount1 > 0 || r.amount2 > 0)
+        .slice(0, 15)
+        .map((r) => `・${r.category}: ${r.amount1 > 0 ? formatCurrency(r.amount1) : "なし"} → ${r.amount2 > 0 ? formatCurrency(r.amount2) : "なし"}（${r.diff > 0 ? "+" : ""}${formatCurrency(r.diff)}${r.diffPct !== null ? `、${r.diff > 0 ? "+" : ""}${r.diffPct}%` : ""}）`)
+        .join("\n");
+      const context = `【${cmpLabel1}】合計支出: ${formatCurrency(cmpData.summary.total1)}\n【${cmpLabel2}】合計支出: ${formatCurrency(cmpData.summary.total2)}\n\nカテゴリ別増減（変化が大きい順）:\n${topDiffs}`;
+      const prompt = `上記の2期間【${cmpLabel1}】vs【${cmpLabel2}】の支出比較データを分析してください。支出変化の要因として特に重要なものを上位5つ、それぞれ具体的な金額・増減率・考えられる理由を含めてわかりやすく説明してください。`;
       const res = await fetch("/api/gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context, prompt: aiPrompt }),
+        body: JSON.stringify({ context, prompt }),
       });
       const json = await res.json();
-      if (!res.ok) {
-        setAiError(json.error ?? "エラーが発生しました");
-      } else {
-        setAiResult(json.text ?? "");
-      }
+      if (!res.ok) setCmpAiError(json.error ?? "エラーが発生しました");
+      else setCmpAiResult(json.text ?? "");
     } finally {
-      setAiLoading(false);
+      setCmpAiLoading(false);
     }
   }
 
@@ -86,7 +115,7 @@ export default function AnalyticsPage() {
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">分析</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">分析</h1>
           <p className="text-slate-400 text-sm mt-0.5">支出パターンを深掘りする</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -197,67 +226,120 @@ export default function AnalyticsPage() {
             </table>
           </Card>
 
-          {/* Gemini AI 分析 */}
+          {/* 比較分析 */}
           <Card>
-            <div className="flex items-center justify-between mb-3">
-              <CardTitle>Gemini AI 分析</CardTitle>
-              <GeminiUsageBadge />
-            </div>
-            <div className="flex gap-2 mb-3">
-              <input
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && runAI()}
-                placeholder="例: 今月の支出の特徴と改善点を教えて"
-                className="flex-1 bg-slate-800 text-white text-sm px-3 py-2 rounded-lg border border-slate-700 focus:border-blue-500 outline-none"
-              />
-              <button
-                onClick={runAI}
-                disabled={aiLoading || !aiPrompt.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition"
-              >
-                {aiLoading ? "分析中..." : "分析"}
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {[
-                "今月の支出の特徴と改善ポイントを教えて",
-                "どのカテゴリを節約すべき？",
-                "食費が高い日のパターンを教えて",
-                "支出のうち固定費と変動費を分けて分析して",
-              ].map((q) => (
-                <button
-                  key={q}
-                  onClick={() => setAiPrompt(q)}
-                  className="text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-full border border-slate-700"
-                >
-                  {q}
+            <CardTitle>比較分析</CardTitle>
+            <div className="space-y-4">
+              {/* 期間セレクター */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-sm">期間1</span>
+                  <select value={cmpP1Year} onChange={(e) => setCmpP1Year(Number(e.target.value))}
+                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+                    {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
+                      <option key={y} value={y}>{y}年</option>
+                    ))}
+                  </select>
+                  <select value={cmpP1Month} onChange={(e) => setCmpP1Month(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+                    <option value="">年全体</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>{m}月</option>
+                    ))}
+                  </select>
+                </div>
+                <span className="text-slate-500 font-bold">vs</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-sm">期間2</span>
+                  <select value={cmpP2Year} onChange={(e) => setCmpP2Year(Number(e.target.value))}
+                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+                    {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
+                      <option key={y} value={y}>{y}年</option>
+                    ))}
+                  </select>
+                  <select value={cmpP2Month} onChange={(e) => setCmpP2Month(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+                    <option value="">年全体</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>{m}月</option>
+                    ))}
+                  </select>
+                </div>
+                <button onClick={runComparison} disabled={cmpLoading}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition">
+                  {cmpLoading ? "比較中..." : "比較"}
                 </button>
-              ))}
-            </div>
-            {aiError && <p className="text-red-400 text-sm mb-2">{aiError}</p>}
-            {aiResult && (
-              <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 leading-relaxed">
-                <ReactMarkdown
-                  components={{
-                    h1: ({ children }) => <h1 className="text-base font-bold text-white mb-2 mt-3">{children}</h1>,
-                    h2: ({ children }) => <h2 className="text-sm font-bold text-white mb-2 mt-3">{children}</h2>,
-                    h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-200 mb-1 mt-2">{children}</h3>,
-                    p: ({ children }) => <p className="text-slate-300 mb-2">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
-                    li: ({ children }) => <li className="text-slate-300">{children}</li>,
-                    strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
-                    em: ({ children }) => <em className="text-slate-200 italic">{children}</em>,
-                    hr: () => <hr className="border-slate-600 my-3" />,
-                    blockquote: ({ children }) => <blockquote className="border-l-2 border-slate-600 pl-3 text-slate-400 my-2">{children}</blockquote>,
-                    code: ({ children }) => <code className="bg-slate-700 px-1 rounded text-slate-200 text-xs">{children}</code>,
-                  }}
-                >
-                  {aiResult}
-                </ReactMarkdown>
               </div>
-            )}
+
+              {/* 比較結果 */}
+              {cmpData && (
+                <>
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-slate-400">{cmpLabel1}: <span className="text-white font-medium">{formatCurrency(cmpData.summary.total1)}</span></span>
+                    <span className="text-slate-400">{cmpLabel2}: <span className="text-white font-medium">{formatCurrency(cmpData.summary.total2)}</span></span>
+                    <span className={`font-medium ${cmpData.summary.total2 - cmpData.summary.total1 > 0 ? "text-red-400" : "text-green-400"}`}>
+                      {cmpData.summary.total2 - cmpData.summary.total1 > 0 ? "+" : ""}{formatCurrency(cmpData.summary.total2 - cmpData.summary.total1)}
+                    </span>
+                  </div>
+
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>カテゴリ</th>
+                        <th className="text-right">{cmpLabel1}</th>
+                        <th className="text-right">{cmpLabel2}</th>
+                        <th className="text-right">増減</th>
+                        <th className="text-right hidden sm:table-cell">増減率</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cmpData.comparison.filter(r => r.amount1 > 0 || r.amount2 > 0).map((row) => (
+                        <tr key={row.category}>
+                          <td className="text-slate-300">{row.category}</td>
+                          <td className="text-right text-slate-400">{row.amount1 > 0 ? formatCurrency(row.amount1) : "—"}</td>
+                          <td className="text-right text-slate-300">{row.amount2 > 0 ? formatCurrency(row.amount2) : "—"}</td>
+                          <td className={`text-right font-medium ${row.diff > 0 ? "text-red-400" : row.diff < 0 ? "text-green-400" : "text-slate-500"}`}>
+                            {row.diff !== 0 ? (row.diff > 0 ? "+" : "") + formatCurrency(row.diff) : "±0"}
+                          </td>
+                          <td className={`text-right text-sm hidden sm:table-cell ${row.diff > 0 ? "text-red-400" : row.diff < 0 ? "text-green-400" : "text-slate-500"}`}>
+                            {row.diffPct !== null ? `${row.diff > 0 ? "+" : ""}${row.diffPct}%` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {/* Gemini 要因分析 */}
+                  <div className="pt-2 border-t border-slate-800">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-slate-400 text-sm">Gemini AI で要因分析（上位5つ）</span>
+                    </div>
+                    <button onClick={runCmpAI} disabled={cmpAiLoading}
+                      className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 disabled:bg-slate-700 text-white text-sm rounded-lg transition">
+                      {cmpAiLoading ? "分析中..." : "AIで要因分析"}
+                    </button>
+                    {cmpAiError && <p className="text-red-400 text-sm mt-2">{cmpAiError}</p>}
+                    {cmpAiResult && (
+                      <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-300 leading-relaxed mt-3">
+                        <ReactMarkdown components={{
+                          h1: ({ children }) => <h1 className="text-base font-bold text-white mb-2 mt-3">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-sm font-bold text-white mb-2 mt-3">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-sm font-semibold text-slate-200 mb-1 mt-2">{children}</h3>,
+                          p: ({ children }) => <p className="text-slate-300 mb-2">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-1">{children}</ol>,
+                          li: ({ children }) => <li className="text-slate-300">{children}</li>,
+                          strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                          hr: () => <hr className="border-slate-600 my-3" />,
+                        }}>
+                          {cmpAiResult}
+                        </ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </Card>
         </div>
       )}

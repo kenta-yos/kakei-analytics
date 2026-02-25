@@ -64,6 +64,22 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ data });
       }
 
+      case "net_asset_trend": {
+        const years = yearsParam?.split(",").map(Number).filter(Boolean);
+        const data = await getNetAssetTrend(years);
+        return NextResponse.json({ data });
+      }
+
+      case "compare": {
+        const p1Year = searchParams.get("p1_year") ? parseInt(searchParams.get("p1_year")!) : null;
+        const p1Month = searchParams.get("p1_month") ? parseInt(searchParams.get("p1_month")!) : null;
+        const p2Year = searchParams.get("p2_year") ? parseInt(searchParams.get("p2_year")!) : null;
+        const p2Month = searchParams.get("p2_month") ? parseInt(searchParams.get("p2_month")!) : null;
+        if (!p1Year || !p2Year) return NextResponse.json({ error: "year が必要です" }, { status: 400 });
+        const data = await getComparisonData(p1Year, p1Month ?? undefined, p2Year, p2Month ?? undefined);
+        return NextResponse.json({ data });
+      }
+
       default:
         return NextResponse.json({ error: "不明な type です" }, { status: 400 });
     }
@@ -228,6 +244,52 @@ async function getPaymentMethodBreakdown(year: number, month?: number) {
     count: Number(r.count ?? 0),
     ratio: grandTotal > 0 ? Math.round((Number(r.total ?? 0) / grandTotal) * 1000) / 10 : 0,
   }));
+}
+
+async function getNetAssetTrend(years?: number[]) {
+  const conditions = years && years.length > 0 ? [inArray(assetSnapshots.year, years)] : [];
+  const rows = await db
+    .select({
+      year: assetSnapshots.year,
+      month: assetSnapshots.month,
+      netAssets: sql<number>`SUM(closing_balance)`,
+    })
+    .from(assetSnapshots)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .groupBy(assetSnapshots.year, assetSnapshots.month)
+    .orderBy(assetSnapshots.year, assetSnapshots.month);
+
+  return rows.map((r) => ({
+    year: r.year,
+    month: r.month,
+    netAssets: Number(r.netAssets ?? 0),
+  }));
+}
+
+async function getComparisonData(
+  p1Year: number, p1Month: number | undefined,
+  p2Year: number, p2Month: number | undefined
+) {
+  const [data1, data2] = await Promise.all([
+    getCategoryBreakdown(p1Year, p1Month),
+    getCategoryBreakdown(p2Year, p2Month),
+  ]);
+  const allCategories = [...new Set([...data1.map((r) => r.category), ...data2.map((r) => r.category)])];
+  const data1Map = new Map(data1.map((r) => [r.category, r.total]));
+  const data2Map = new Map(data2.map((r) => [r.category, r.total]));
+  const comparison = allCategories.map((cat) => {
+    const a1 = data1Map.get(cat) ?? 0;
+    const a2 = data2Map.get(cat) ?? 0;
+    const diff = a2 - a1;
+    return { category: cat, amount1: a1, amount2: a2, diff, diffPct: a1 > 0 ? Math.round((diff / a1) * 100) : null };
+  }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  return {
+    comparison,
+    summary: {
+      total1: data1.reduce((s, r) => s + r.total, 0),
+      total2: data2.reduce((s, r) => s + r.total, 0),
+    },
+  };
 }
 
 async function getTopItems(year: number, month?: number, limit = 20) {

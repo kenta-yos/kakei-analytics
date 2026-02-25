@@ -45,20 +45,16 @@ function sortByExcelOrder(cats: string[], year: number): string[] {
   });
 }
 
-// 来月の年月を計算
-function nextYearMonth(y: number, m: number) {
-  return m === 12 ? { year: y + 1, month: 1 } : { year: y, month: m + 1 };
-}
 function prevYearMonth(y: number, m: number) {
   return m === 1 ? { year: y - 1, month: 12 } : { year: y, month: m - 1 };
 }
 
 export default function BudgetPage() {
   const now = new Date();
-  // デフォルトは「来月の予算を立てる」
-  const next = nextYearMonth(now.getFullYear(), now.getMonth() + 1);
-  const [year, setYear] = useState(next.year);
-  const [month, setMonth] = useState(next.month);
+  // デフォルトは当月
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [isEditing, setIsEditing] = useState(false);
 
   // 編集中の値 { カテゴリ名 → { allocation, carryover } }
   const [editMap, setEditMap] = useState<
@@ -116,18 +112,16 @@ export default function BudgetPage() {
       setPrevActuals(actualsMap);
 
       // 5. この月に実際に使われているカテゴリ
-      // 来月など実績がない月の場合、前月実績カテゴリをベースにする
       const allCats = sortByExcelOrder(Array.from(
         new Set([
           ...existing.map((r) => r.categoryName),
           ...carryoverItems.map((c) => c.categoryName),
-          ...prevRows.map((r) => r.categoryName), // 前月実績ベース
+          ...prevRows.map((r) => r.categoryName),
         ])
       ), year);
       setCategories(allCats);
 
       // 6. editMap を初期化
-      // 既存予算がある場合はそれを使う、なければ繰越を自動設定
       const carryoverMap = new Map(
         carryoverItems.map((c) => [c.categoryName, c.carryover])
       );
@@ -142,18 +136,16 @@ export default function BudgetPage() {
       allCats.forEach((cat) => {
         const ex = existingMap.get(cat);
         if (ex) {
-          // 既存予算あり → そのまま
           newEditMap[cat] = {
             allocation: ex.allocation,
             carryover: ex.carryover,
             enabled: true,
           };
         } else {
-          // 繰越のみ自動設定（allocは0）
           newEditMap[cat] = {
             allocation: 0,
             carryover: carryoverMap.get(cat) ?? 0,
-            enabled: (carryoverMap.get(cat) ?? 0) !== 0, // 繰越がある場合は自動ON
+            enabled: (carryoverMap.get(cat) ?? 0) !== 0,
           };
         }
       });
@@ -275,7 +267,7 @@ export default function BudgetPage() {
           <div className="text-right">
             <p className="text-slate-400 text-sm mb-1">未配分残り</p>
             {unallocated === 0 ? (
-              <p className="text-2xl sm:text-3xl font-bold text-green-400">✓ 配分完了！</p>
+              <p className="text-2xl sm:text-3xl font-bold text-green-400">配分完了</p>
             ) : (
               <p className={`text-2xl sm:text-3xl font-bold ${unallocated < 0 ? "text-red-400" : "text-yellow-300"}`}>
                 {formatCurrencySigned(unallocated)}
@@ -340,24 +332,39 @@ export default function BudgetPage() {
       <Card>
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <CardTitle>{year}年{month}月 カテゴリ別予算</CardTitle>
-          <div className="flex gap-2 flex-wrap">
+          {!isEditing ? (
             <button
-              onClick={fillFromPrevActuals}
-              className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
+              onClick={() => setIsEditing(true)}
+              className="px-4 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
             >
-              前月実績で一括設定
+              編集
             </button>
-            <button
-              onClick={saveBudgets}
-              disabled={saving}
-              className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-semibold"
-            >
-              {saving ? "保存中..." : "保存"}
-            </button>
-          </div>
+          ) : (
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={fillFromPrevActuals}
+                className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
+              >
+                前月実績で一括設定
+              </button>
+              <button
+                onClick={() => { loadData(); setIsEditing(false); }}
+                className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={async () => { await saveBudgets(); setIsEditing(false); }}
+                disabled={saving}
+                className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-semibold"
+              >
+                {saving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          )}
         </div>
 
-        {saved && <p className="text-green-400 text-xs mb-3">✓ 保存しました</p>}
+        {saved && <p className="text-green-400 text-xs mb-3">保存しました</p>}
 
         {loading ? (
           <p className="text-slate-500 text-sm py-8 text-center">読み込み中...</p>
@@ -365,22 +372,75 @@ export default function BudgetPage() {
           <p className="text-slate-500 text-sm py-8 text-center">
             CSVをインポートするとカテゴリが自動で表示されます
           </p>
-        ) : (
+        ) : !isEditing ? (
+          /* ---- 閲覧モード ---- */
           <div className="overflow-x-auto">
             <table className="data-table">
               <thead>
                 <tr>
                   <th className="text-left">カテゴリ</th>
-                  {/* ── 予算グループ ── */}
-                  <th className="text-right hidden sm:table-cell border-l-2 border-l-blue-800/50 text-blue-300/80">
+                  <th className="text-right">合計予算</th>
+                  <th className="text-right">当月実績</th>
+                  <th className="text-right">残り</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((cat) => {
+                  const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
+                  const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
+                  const actual = actualMap.get(cat) ?? 0;
+                  const remaining = totalB - actual;
+                  const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
+                  const over = totalB > 0 && actual > totalB;
+                  return (
+                    <tr key={cat}>
+                      <td className="font-medium text-slate-200">{cat}</td>
+                      <td className="text-right text-white">{totalB !== 0 ? formatCurrency(totalB) : "—"}</td>
+                      <td className="text-right text-slate-300">{actual > 0 ? formatCurrency(actual) : "—"}</td>
+                      <td className={`text-right font-medium ${remaining < 0 ? "text-red-400" : totalB !== 0 ? "text-green-400" : "text-slate-600"}`}>
+                        {totalB !== 0 || actual > 0 ? formatCurrencySigned(remaining) : "—"}
+                        {totalB > 0 && (
+                          <div className="h-1 bg-slate-700 rounded-full overflow-hidden mt-1 w-full min-w-[60px]">
+                            <div
+                              className={`h-full rounded-full ${over ? "bg-red-500" : pct > 80 ? "bg-yellow-500" : "bg-blue-500"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {/* 合計行 */}
+                <tr className="border-t-2 border-slate-600 font-semibold">
+                  <td className="text-slate-300 pt-3">合計</td>
+                  <td className="text-right pt-3 text-white">{formatCurrency(totalBudget)}</td>
+                  <td className="text-right pt-3 text-slate-300">{formatCurrency(totalActual)}</td>
+                  <td className={`text-right pt-3 font-medium ${totalBudget - totalActual < 0 ? "text-red-400" : "text-green-400"}`}>
+                    {totalBudget !== 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* ---- 編集モード ---- */
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th className="text-left">カテゴリ</th>
+                  {/* 前月繰越: モバイルでも表示 */}
+                  <th className="text-right border-l-2 border-l-blue-800/50 text-blue-300/80">
                     前月繰越<span className="text-slate-600 text-xs ml-1">(自動)</span>
                   </th>
                   <th className="text-right text-blue-300/80">今月割り当て</th>
                   <th className="text-right text-blue-300/80">合計予算</th>
-                  {/* ── 実績グループ ── */}
+                  {/* 前月実績 */}
                   <th className="text-right hidden sm:table-cell border-l-2 border-l-slate-600/40">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
                   <th className="text-right">当月実績</th>
-                  {/* ── 残高グループ ── */}
+                  {/* 残高 */}
                   <th className="text-right border-l-2 border-l-emerald-700/50 text-emerald-300/80">残り</th>
                   <th className="w-28 hidden md:table-cell text-emerald-300/80">進捗</th>
                 </tr>
@@ -399,8 +459,8 @@ export default function BudgetPage() {
                     <tr key={cat}>
                       <td className="font-medium text-slate-200">{cat}</td>
 
-                      {/* 前月繰越（読み取り専用） */}
-                      <td className={`text-right hidden sm:table-cell border-l-2 border-l-blue-800/30 font-medium ${
+                      {/* 前月繰越（読み取り専用）- 常時表示 */}
+                      <td className={`text-right border-l-2 border-l-blue-800/30 font-medium ${
                         (edit.carryover ?? 0) >= 0 ? "text-green-400" : "text-red-400"
                       }`}>
                         {formatCurrencySigned(edit.carryover)}
@@ -412,7 +472,8 @@ export default function BudgetPage() {
                           type="number"
                           value={edit.allocation}
                           onChange={(e) => update(cat, "allocation", Number(e.target.value))}
-                          className="w-20 sm:w-24 bg-slate-800 text-white text-right text-sm px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none"
+                          style={{ fontSize: '16px' }}
+                          className="w-20 sm:w-24 bg-slate-800 text-white text-right px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none"
                         />
                       </td>
 
@@ -433,9 +494,9 @@ export default function BudgetPage() {
 
                       {/* 残り */}
                       <td className={`text-right font-medium border-l-2 border-l-emerald-800/30 ${
-                        remaining < 0 ? "text-red-400" : totalB > 0 ? "text-green-400" : "text-slate-600"
+                        remaining < 0 ? "text-red-400" : totalB !== 0 ? "text-green-400" : "text-slate-600"
                       }`}>
-                        {totalB > 0 ? formatCurrencySigned(remaining) : "—"}
+                        {totalB !== 0 || actual > 0 ? formatCurrencySigned(remaining) : "—"}
                       </td>
 
                       {/* 進捗バー */}
@@ -458,7 +519,7 @@ export default function BudgetPage() {
                 {/* 合計行 */}
                 <tr className="border-t-2 border-slate-600 font-semibold">
                   <td className="text-slate-300 pt-3">合計</td>
-                  <td className={`text-right pt-3 hidden sm:table-cell border-l-2 border-l-blue-800/30 ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  <td className={`text-right pt-3 border-l-2 border-l-blue-800/30 ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
                     {formatCurrencySigned(totalCarryover)}
                   </td>
                   <td className="text-right pt-3 text-blue-400">{formatCurrency(totalAllocation)}</td>
@@ -472,7 +533,7 @@ export default function BudgetPage() {
                   <td className={`text-right pt-3 font-medium border-l-2 border-l-emerald-800/30 ${
                     totalBudget - totalActual < 0 ? "text-red-400" : "text-green-400"
                   }`}>
-                    {totalBudget > 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
+                    {totalBudget !== 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
                   </td>
                   <td className="hidden md:table-cell" />
                 </tr>
@@ -483,16 +544,18 @@ export default function BudgetPage() {
       </Card>
 
       {/* 凡例 */}
-      <Card className="mt-4">
-        <CardTitle>操作ガイド</CardTitle>
-        <ul className="text-xs text-slate-400 space-y-1">
-          <li>・<span className="text-green-400">前月収入</span>を見ながら各カテゴリに予算を割り振る。未配分残りが 0 になるまで入力する</li>
-          <li>・<span className="text-blue-300/80">予算列</span>（前月繰越・今月割り当て・合計予算）: 前月繰越は自動入力。今月割り当てを入力すると未配分残りにリアルタイム反映</li>
-          <li>・実績列（前月実績・当月実績）: 参考値。編集不可</li>
-          <li>・<span className="text-emerald-300/80">残高列</span>（残り・進捗）: 合計予算 − 当月実績を自動計算</li>
-          <li>・<span className="text-slate-300">前月実績で一括設定</span>: 前月の実績額を割り当て欄に一括コピーします（参考値）</li>
-        </ul>
-      </Card>
+      {isEditing && (
+        <Card className="mt-4">
+          <CardTitle>操作ガイド</CardTitle>
+          <ul className="text-xs text-slate-400 space-y-1">
+            <li>・<span className="text-green-400">前月収入</span>を見ながら各カテゴリに予算を割り振る。未配分残りが 0 になるまで入力する</li>
+            <li>・<span className="text-blue-300/80">予算列</span>（前月繰越・今月割り当て・合計予算）: 前月繰越は自動入力。今月割り当てを入力すると未配分残りにリアルタイム反映</li>
+            <li>・実績列（前月実績・当月実績）: 参考値。編集不可</li>
+            <li>・<span className="text-emerald-300/80">残高列</span>（残り・進捗）: 合計予算 − 当月実績を自動計算</li>
+            <li>・<span className="text-slate-300">前月実績で一括設定</span>: 前月の実績額を割り当て欄に一括コピーします（参考値）</li>
+          </ul>
+        </Card>
+      )}
     </div>
   );
 }

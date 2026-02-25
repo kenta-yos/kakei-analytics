@@ -1,12 +1,11 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, getCategoryColor } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from "recharts";
-import CategorySelect from "@/components/ui/CategorySelect";
 
 type MonthlyPoint = {
   year: number;
@@ -21,6 +20,8 @@ type CategoryPoint = {
   month: number;
   total: number;
 };
+
+type NetAssetPoint = { year: number; month: number; netAssets: number };
 
 const YEAR_COLORS = ["#3b82f6", "#22c55e", "#f97316", "#a855f7", "#ec4899", "#14b8a6", "#f43f5e", "#eab308"];
 const ALL_YEARS = Array.from({ length: 8 }, (_, i) => 2019 + i);
@@ -42,21 +43,35 @@ export default function TrendsPage() {
   ]);
   const [trendData, setTrendData] = useState<MonthlyPoint[]>([]);
   const [catTrend, setCatTrend] = useState<CategoryPoint[]>([]);
+  const [netAssetData, setNetAssetData] = useState<NetAssetPoint[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("食費");
+  const [trendCategories, setTrendCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // カテゴリ一覧を一度だけ取得
+  useEffect(() => {
+    fetch("/api/categories?type=expense")
+      .then((r) => r.json())
+      .then((json) => setTrendCategories((json.data ?? []).map((d: { category: string }) => d.category)))
+      .catch(() => {});
+  }, []); // fetch once on mount, no re-fetch on loading changes
 
   const fetchData = useCallback(async () => {
     if (selectedYears.length === 0) return;
     setLoading(true);
     try {
       const yearsParam = selectedYears.join(",");
-      const [trendRes, catRes] = await Promise.all([
+      const [trendRes, catRes, netAssetRes] = await Promise.all([
         fetch(`/api/analytics?type=trend&years=${yearsParam}`),
         fetch(`/api/analytics?type=category_trend&category=${encodeURIComponent(selectedCategory)}`),
+        fetch(`/api/analytics?type=net_asset_trend&years=${yearsParam}`),
       ]);
-      const [trendJson, catJson] = await Promise.all([trendRes.json(), catRes.json()]);
+      const [trendJson, catJson, netAssetJson] = await Promise.all([
+        trendRes.json(), catRes.json(), netAssetRes.json(),
+      ]);
       setTrendData(trendJson.data ?? []);
       setCatTrend((catJson.data ?? []).filter((d: CategoryPoint) => selectedYears.includes(d.year)));
+      setNetAssetData(netAssetJson.data ?? []);
     } finally {
       setLoading(false);
     }
@@ -92,6 +107,16 @@ export default function TrendsPage() {
     return point;
   });
 
+  const netAssetChartData = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const point: Record<string, number | string> = { month: `${m}月` };
+    for (const year of selectedYears) {
+      const d = netAssetData.find((t) => t.year === year && t.month === m);
+      point[`${year}年`] = d?.netAssets ?? 0;
+    }
+    return point;
+  });
+
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-5">
@@ -120,8 +145,6 @@ export default function TrendsPage() {
         </div>
       </Card>
 
-      {/* グラフを常時レンダリング（loading中はプレースホルダー表示）
-          ※ CategorySelectをアンマウントさせないための構造 */}
       <div className="space-y-4">
         {/* 月別支出比較 */}
         <Card>
@@ -175,17 +198,47 @@ export default function TrendsPage() {
           )}
         </Card>
 
-        {/* カテゴリ別トレンド
-            CategorySelectは常時マウントされており、カテゴリ一覧が保持される */}
+        {/* 純資産推移（資産-負債） */}
+        <Card>
+          <CardTitle>純資産推移（資産 − 負債）</CardTitle>
+          {loading ? <LoadingChart height={240} /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={netAssetChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => `${(v / 10000).toFixed(0)}万`} />
+                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Legend />
+                {selectedYears.map((y) => (
+                  <Line
+                    key={y}
+                    type="monotone"
+                    dataKey={`${y}年`}
+                    stroke={getYearColor(y)}
+                    strokeWidth={2}
+                    dot={false}
+                    name={`${y}年`}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        {/* カテゴリ別トレンド */}
         <Card>
           <div className="flex items-center gap-3 mb-3">
             <CardTitle>カテゴリ別トレンド</CardTitle>
-            <CategorySelect
+            <select
               value={selectedCategory}
-              onChange={setSelectedCategory}
-              type="expense"
-              includeAll={false}
-            />
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-blue-500 outline-none"
+            >
+              {trendCategories.length > 0
+                ? trendCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)
+                : <option value={selectedCategory}>{selectedCategory}</option>
+              }
+            </select>
           </div>
           {loading ? <LoadingChart height={240} /> : (
             <ResponsiveContainer width="100%" height={240}>
