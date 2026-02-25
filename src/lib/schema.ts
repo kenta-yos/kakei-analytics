@@ -1,0 +1,137 @@
+import {
+  pgTable,
+  serial,
+  varchar,
+  integer,
+  boolean,
+  date,
+  text,
+  timestamp,
+  unique,
+  index,
+} from "drizzle-orm/pg-core";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 取引テーブル（収支合算CSVから取り込む全取引）
+// ─────────────────────────────────────────────────────────────────────────────
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: serial("id").primaryKey(),
+    date: date("date").notNull(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    type: varchar("type", { length: 10 }).notNull(), // '支出' | '収入' | '振替'
+    category: varchar("category", { length: 100 }).notNull(),
+    itemName: varchar("item_name", { length: 200 }),
+    amount: integer("amount").notNull().default(0),
+    expenseAmount: integer("expense_amount").notNull().default(0),
+    incomeAmount: integer("income_amount").notNull().default(0),
+    assetName: varchar("asset_name", { length: 100 }),
+    tag: varchar("tag", { length: 100 }),
+    memo: text("memo"),
+    excludeFromPl: boolean("exclude_from_pl").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    yearMonthIdx: index("tx_year_month_idx").on(t.year, t.month),
+    categoryIdx: index("tx_category_idx").on(t.category),
+    typeIdx: index("tx_type_idx").on(t.type),
+    dateIdx: index("tx_date_idx").on(t.date),
+    assetIdx: index("tx_asset_idx").on(t.assetName),
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 資産月次スナップショット（資産別レポートCSVから取り込む月末残高）
+// ─────────────────────────────────────────────────────────────────────────────
+export const assetSnapshots = pgTable(
+  "asset_snapshots",
+  {
+    id: serial("id").primaryKey(),
+    assetName: varchar("asset_name", { length: 100 }).notNull(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    openingBalance: integer("opening_balance").notNull().default(0), // 月初残高
+    closingBalance: integer("closing_balance").notNull().default(0), // 月末残高
+    // 資産種別（柔軟に追加できるよう文字列で管理）
+    assetType: varchar("asset_type", { length: 30 }).notNull().default("other"),
+    // bank | credit | investment | ic_card | qr_pay | cash | other
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("asset_snapshots_uniq").on(t.assetName, t.year, t.month),
+    yearMonthIdx: index("as_year_month_idx").on(t.year, t.month),
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 予算設定テーブル（月ごと × カテゴリごとの予算）
+// ─────────────────────────────────────────────────────────────────────────────
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: serial("id").primaryKey(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    categoryName: varchar("category_name", { length: 100 }).notNull(),
+    allocation: integer("allocation").notNull().default(0), // 今月の新規割り当て
+    carryover: integer("carryover").notNull().default(0),   // 前月繰越（±）
+    totalBudget: integer("total_budget").notNull().default(0), // allocation + carryover
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("budgets_uniq").on(t.year, t.month, t.categoryName),
+    yearMonthIdx: index("budgets_year_month_idx").on(t.year, t.month),
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 月次収入割り当てテーブル（前月収入を今月予算に割り振るときの管理）
+// ─────────────────────────────────────────────────────────────────────────────
+export const monthlyIncomeAllocations = pgTable(
+  "monthly_income_allocations",
+  {
+    id: serial("id").primaryKey(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    totalIncome: integer("total_income").notNull().default(0), // その月の実収入合計
+    totalAllocated: integer("total_allocated").notNull().default(0), // 予算に割り当てた合計
+    notes: text("notes"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("mia_uniq").on(t.year, t.month),
+  })
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gemini API 日次利用カウンター
+// ─────────────────────────────────────────────────────────────────────────────
+export const geminiUsage = pgTable(
+  "gemini_usage",
+  {
+    id: serial("id").primaryKey(),
+    date: date("date").notNull(), // YYYY-MM-DD
+    count: integer("count").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("gemini_usage_date_uniq").on(t.date),
+  })
+);
+
+export type GeminiUsage = typeof geminiUsage.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 型エクスポート
+// ─────────────────────────────────────────────────────────────────────────────
+export type Transaction = typeof transactions.$inferSelect;
+export type NewTransaction = typeof transactions.$inferInsert;
+export type AssetSnapshot = typeof assetSnapshots.$inferSelect;
+export type NewAssetSnapshot = typeof assetSnapshots.$inferInsert;
+export type Budget = typeof budgets.$inferSelect;
+export type NewBudget = typeof budgets.$inferInsert;
+export type MonthlyIncomeAllocation = typeof monthlyIncomeAllocations.$inferSelect;
