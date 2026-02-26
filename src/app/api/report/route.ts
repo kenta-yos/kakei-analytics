@@ -2,11 +2,14 @@
  * 決算レポート API
  * GET /api/report?type=annual&year=2025    → 年次決算サマリー
  * GET /api/report?type=quarterly&year=2025 → 四半期別サマリー
+ * GET /api/report?type=analysis&year=2025&period=annual|quarterly → 保存済み定性レポート
+ * POST /api/report { action:"generate_analysis", year, period }  → Gemini定性分析を生成・保存
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { transactions, assetSnapshots } from "@/lib/schema";
+import { transactions, assetSnapshots, reportAnalyses } from "@/lib/schema";
 import { eq, and, sql, ne } from "drizzle-orm";
+import { analyzeWithGemini } from "@/lib/gemini";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -14,6 +17,20 @@ export async function GET(req: NextRequest) {
   const year = parseInt(searchParams.get("year") ?? String(new Date().getFullYear()));
 
   try {
+    if (type === "analysis") {
+      const period = searchParams.get("period") ?? "annual";
+      const rows = await db
+        .select()
+        .from(reportAnalyses)
+        .where(
+          and(
+            eq(reportAnalyses.year, year),
+            eq(reportAnalyses.reportType, period)
+          )
+        );
+      return NextResponse.json({ data: rows[0] ?? null });
+    }
+
     if (type === "annual") {
       const data = await getAnnualReport(year);
       return NextResponse.json({ data });
@@ -27,6 +44,129 @@ export async function GET(req: NextRequest) {
     console.error(e);
     return NextResponse.json({ error: "レポートの取得に失敗しました" }, { status: 500 });
   }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action, year, period } = body as {
+      action: string;
+      year: number;
+      period: "annual" | "quarterly";
+    };
+
+    if (action !== "generate_analysis") {
+      return NextResponse.json({ error: "不明な action です" }, { status: 400 });
+    }
+
+    // 既存の分析がある場合はスキップ
+    const existing = await db
+      .select()
+      .from(reportAnalyses)
+      .where(
+        and(
+          eq(reportAnalyses.year, year),
+          eq(reportAnalyses.reportType, period)
+        )
+      );
+    if (existing.length > 0) {
+      return NextResponse.json({ data: existing[0], alreadyExists: true });
+    }
+
+    // データを取得してプロンプト用コンテキストを構築
+    const context = period === "annual"
+      ? await buildAnnualContext(year)
+      : await buildQuarterlyContext(year);
+
+    const periodLabel = period === "annual" ? "年次" : "四半期別";
+    const prompt = `以下は${year}年の家計${periodLabel}決算データです。このデータをもとに、企業の決算発表のような定性的な分析レポートを日本語で作成してください。
+
+## 作成要件
+- 企業アナリストが株主向けに書く決算レポートのようなトーンと格調ある文体で
+- 数字の羅列ではなく、データから読み取れる定性的な意味・背景・コンテキストを重視
+- 良い点・悪い点の両方を客観的に述べる
+- 家計管理の専門家として、実用的で実行可能な洞察と提言を含める
+
+## 構成（マークダウン形式で出力）
+
+### 総評
+その年/期を象徴するひとことから始め、全体の傾向を2〜3段落で述べる
+
+### 収支トピックス
+その年/期に特筆すべき収支の動き（3〜5点を箇条書き）
+
+### 支出構造の分析
+主要カテゴリの傾向・特に大きい・変化した・注目すべきカテゴリを考察
+
+### リスク・懸念点
+支出面や資産面での懸念、改善余地のある領域
+
+### 来期への提言
+具体的かつ実行可能な改善提案（3点）`;
+
+    const result = await analyzeWithGemini({ context, prompt });
+
+    if (!result.success || !result.text) {
+      return NextResponse.json(
+        { error: result.error ?? "Gemini分析に失敗しました" },
+        { status: 500 }
+      );
+    }
+
+    // DBに保存
+    const saved = await db
+      .insert(reportAnalyses)
+      .values({ year, reportType: period, analysis: result.text })
+      .returning();
+
+    return NextResponse.json({ data: saved[0], usage: result.usage });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "分析の生成に失敗しました" }, { status: 500 });
+  }
+}
+
+// ──────────────────────────────────────────────
+// Gemini コンテキスト構築
+// ──────────────────────────────────────────────
+async function buildAnnualContext(year: number): Promise<string> {
+  const data = await getAnnualReport(year);
+  return JSON.stringify({
+    year: data.year,
+    収入: { 当年: data.income.current, 前年: data.income.prev, 前年比: data.income.yoy },
+    支出: { 当年: data.expense.current, 前年: data.expense.prev, 前年比: data.expense.yoy },
+    純損益貯蓄額: { 当年: data.netIncome.current, 前年: data.netIncome.prev },
+    貯蓄率: { 当年: data.savingsRate.current, 前年: data.savingsRate.prev },
+    純資産: {
+      期首: data.netAsset.start,
+      期末: data.netAsset.end,
+      増減: data.netAsset.change,
+      前年末: data.netAsset.prevEnd,
+      前年比: data.netAsset.yoy,
+    },
+    月別収支: data.monthly,
+    支出カテゴリランキング: data.categories.slice(0, 15),
+    ハイライト: data.highlights,
+  }, null, 2);
+}
+
+async function buildQuarterlyContext(year: number): Promise<string> {
+  const data = await getQuarterlyReport(year);
+  return JSON.stringify({
+    year: data.year,
+    四半期別: data.quarters.map((q) => ({
+      期間: q.label,
+      収入: q.income,
+      支出: q.expense,
+      純損益: q.netIncome,
+      貯蓄率: q.savingsRate,
+      四半期末純資産: q.netAsset,
+      前年同期比収入: q.yoy.income,
+      前年同期比支出: q.yoy.expense,
+      支出TOP5カテゴリ: q.topCategories,
+    })),
+    月別詳細: data.monthly,
+  }, null, 2);
 }
 
 // ──────────────────────────────────────────────

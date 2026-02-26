@@ -45,6 +45,14 @@ type QuarterlyReport = {
   monthly: { month: number; quarter: string; totalIncome: number; totalExpense: number; netIncome: number }[];
 };
 
+type ReportAnalysis = {
+  id: number;
+  year: number;
+  reportType: string;
+  analysis: string;
+  createdAt: string;
+} | null;
+
 // ──────────────────────────────────────────────
 // 共通ヘルパー
 // ──────────────────────────────────────────────
@@ -90,6 +98,134 @@ function KpiCard({
 }
 
 // ──────────────────────────────────────────────
+// 定性分析セクション
+// ──────────────────────────────────────────────
+function AnalysisSection({
+  year,
+  period,
+  analysis,
+  onGenerated,
+}: {
+  year: number;
+  period: "annual" | "quarterly";
+  analysis: ReportAnalysis;
+  onGenerated: (analysis: ReportAnalysis) => void;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function generate() {
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate_analysis", year, period }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "生成に失敗しました");
+        return;
+      }
+      onGenerated(json.data);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  const periodLabel = period === "annual" ? "年次" : "四半期";
+
+  return (
+    <Card className="border-purple-800/30 bg-purple-950/5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <CardTitle>定性分析レポート（AI）</CardTitle>
+          <p className="text-slate-500 text-xs mt-0.5">
+            Gemini が{year}年{periodLabel}データをもとに企業決算発表風の定性分析を生成します
+          </p>
+        </div>
+        {!analysis && (
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="px-4 py-2 text-sm font-semibold rounded-lg transition flex items-center gap-2 bg-purple-700 hover:bg-purple-600 disabled:bg-slate-700 text-white shrink-0"
+          >
+            {generating ? (
+              <>
+                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                定性レポート作成中...
+              </>
+            ) : (
+              "定性レポートを作成"
+            )}
+          </button>
+        )}
+        {analysis && (
+          <span className="px-4 py-2 text-sm font-semibold rounded-lg bg-slate-700 text-slate-400 border border-slate-600 shrink-0">
+            ✓ 作成済み
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <p className="mt-3 text-red-400 text-sm bg-red-950/20 border border-red-800/30 rounded-lg px-3 py-2">
+          {error}
+        </p>
+      )}
+
+      {analysis && (
+        <div className="mt-5 prose prose-invert prose-sm max-w-none">
+          <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap border-t border-slate-700 pt-4">
+            {analysis.analysis.split("\n").map((line, i) => {
+              if (line.startsWith("### ")) {
+                return (
+                  <h3 key={i} className="text-white font-bold text-base mt-5 mb-2 first:mt-0">
+                    {line.replace("### ", "")}
+                  </h3>
+                );
+              }
+              if (line.startsWith("## ")) {
+                return (
+                  <h2 key={i} className="text-white font-bold text-lg mt-6 mb-2 first:mt-0">
+                    {line.replace("## ", "")}
+                  </h2>
+                );
+              }
+              if (line.startsWith("# ")) {
+                return (
+                  <h1 key={i} className="text-white font-bold text-xl mt-6 mb-3 first:mt-0">
+                    {line.replace("# ", "")}
+                  </h1>
+                );
+              }
+              if (line.startsWith("- ") || line.startsWith("* ")) {
+                return (
+                  <div key={i} className="flex gap-2 my-0.5">
+                    <span className="text-purple-400 shrink-0 mt-0.5">•</span>
+                    <span>{line.replace(/^[-*] /, "")}</span>
+                  </div>
+                );
+              }
+              if (line.trim() === "") {
+                return <div key={i} className="h-2" />;
+              }
+              return <p key={i} className="my-1">{line}</p>;
+            })}
+          </div>
+          <p className="text-slate-600 text-xs mt-4 pt-3 border-t border-slate-800">
+            生成日時: {new Date(analysis.createdAt).toLocaleString("ja-JP")}
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ──────────────────────────────────────────────
 // メインページ
 // ──────────────────────────────────────────────
 export default function ReportPage() {
@@ -98,6 +234,8 @@ export default function ReportPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [annual, setAnnual] = useState<AnnualReport | null>(null);
   const [quarterly, setQuarterly] = useState<QuarterlyReport | null>(null);
+  const [annualAnalysis, setAnnualAnalysis] = useState<ReportAnalysis>(null);
+  const [quarterlyAnalysis, setQuarterlyAnalysis] = useState<ReportAnalysis>(null);
   const [loading, setLoading] = useState(false);
 
   const allYears = Array.from({ length: 8 }, (_, i) => 2019 + i).reverse();
@@ -105,16 +243,30 @@ export default function ReportPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/report?type=${tab}&year=${year}`);
-      const json = await res.json();
-      if (tab === "annual") setAnnual(json.data);
-      else setQuarterly(json.data);
+      const [reportRes, analysisRes] = await Promise.all([
+        fetch(`/api/report?type=${tab}&year=${year}`),
+        fetch(`/api/report?type=analysis&year=${year}&period=${tab}`),
+      ]);
+      const [reportJson, analysisJson] = await Promise.all([
+        reportRes.json(),
+        analysisRes.json(),
+      ]);
+      if (tab === "annual") {
+        setAnnual(reportJson.data);
+        setAnnualAnalysis(analysisJson.data);
+      } else {
+        setQuarterly(reportJson.data);
+        setQuarterlyAnalysis(analysisJson.data);
+      }
     } finally {
       setLoading(false);
     }
   }, [tab, year]);
 
   useEffect(() => { load(); }, [load]);
+
+  const currentAnalysis = tab === "annual" ? annualAnalysis : quarterlyAnalysis;
+  const setCurrentAnalysis = tab === "annual" ? setAnnualAnalysis : setQuarterlyAnalysis;
 
   return (
     <div className="p-4 sm:p-6">
@@ -157,9 +309,19 @@ export default function ReportPage() {
       {loading ? (
         <div className="flex items-center justify-center h-64 text-slate-500">読み込み中...</div>
       ) : tab === "annual" && annual ? (
-        <AnnualView data={annual} />
+        <AnnualView
+          data={annual}
+          analysis={annualAnalysis}
+          onAnalysisGenerated={setCurrentAnalysis}
+          year={year}
+        />
       ) : tab === "quarterly" && quarterly ? (
-        <QuarterlyView data={quarterly} />
+        <QuarterlyView
+          data={quarterly}
+          analysis={quarterlyAnalysis}
+          onAnalysisGenerated={setCurrentAnalysis}
+          year={year}
+        />
       ) : null}
     </div>
   );
@@ -168,7 +330,17 @@ export default function ReportPage() {
 // ──────────────────────────────────────────────
 // 年次ビュー
 // ──────────────────────────────────────────────
-function AnnualView({ data }: { data: AnnualReport }) {
+function AnnualView({
+  data,
+  analysis,
+  onAnalysisGenerated,
+  year,
+}: {
+  data: AnnualReport;
+  analysis: ReportAnalysis;
+  onAnalysisGenerated: (a: ReportAnalysis) => void;
+  year: number;
+}) {
   const net = data.netIncome.current;
   const monthlyChartData = data.monthly.map((m) => ({
     month: MONTH_LABELS[m.month - 1],
@@ -359,6 +531,14 @@ function AnnualView({ data }: { data: AnnualReport }) {
           </table>
         </div>
       </Card>
+
+      {/* 定性分析 */}
+      <AnalysisSection
+        year={year}
+        period="annual"
+        analysis={analysis}
+        onGenerated={onAnalysisGenerated}
+      />
     </div>
   );
 }
@@ -366,7 +546,17 @@ function AnnualView({ data }: { data: AnnualReport }) {
 // ──────────────────────────────────────────────
 // 四半期ビュー
 // ──────────────────────────────────────────────
-function QuarterlyView({ data }: { data: QuarterlyReport }) {
+function QuarterlyView({
+  data,
+  analysis,
+  onAnalysisGenerated,
+  year,
+}: {
+  data: QuarterlyReport;
+  analysis: ReportAnalysis;
+  onAnalysisGenerated: (a: ReportAnalysis) => void;
+  year: number;
+}) {
   const chartData = data.quarters.map((q, i) => ({
     name: q.label,
     収入: q.income,
@@ -550,6 +740,14 @@ function QuarterlyView({ data }: { data: QuarterlyReport }) {
           </Card>
         ))}
       </div>
+
+      {/* 定性分析 */}
+      <AnalysisSection
+        year={year}
+        period="quarterly"
+        analysis={analysis}
+        onGenerated={onAnalysisGenerated}
+      />
     </div>
   );
 }

@@ -190,6 +190,21 @@ export const fireSettings = pgTable("fire_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 決算レポート 定性分析テーブル（Gemini生成・年次/四半期ごとに永続保存）
+// ─────────────────────────────────────────────────────────────────────────────
+export const reportAnalyses = pgTable("report_analyses", {
+  id: serial("id").primaryKey(),
+  year: integer("year").notNull(),
+  reportType: varchar("report_type", { length: 20 }).notNull(), // 'annual' | 'quarterly'
+  analysis: text("analysis").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("report_analyses_uniq").on(t.year, t.reportType),
+]);
+
+export type ReportAnalysis = typeof reportAnalyses.$inferSelect;
+
 export type InvestmentValuation = typeof investmentValuations.$inferSelect;
 export type NewInvestmentValuation = typeof investmentValuations.$inferInsert;
 export type FireSettings = typeof fireSettings.$inferSelect;
