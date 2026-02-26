@@ -296,15 +296,19 @@ export function aggregateAssetSnapshots(
  * 資産別レポートから投資への振替（積立）を抽出する
  *
  * 収支合算レポートに振替が含まれない旧形式CSVを使っている場合、
- * 資産別レポートの「送金側」エントリ（例: ゆうちょ → iDeCo）から
+ * 資産別レポートの投資口座セクション内「受取側」エントリ（type='収入', category='振替'）から
  * 投資コストを計算するための合成トランザクションを生成する。
+ *
+ * 送金側（ゆうちょ → iDeCo）ではなく受取側を使う理由:
+ * 2024-04以降、送金側の itemName が「iDeCo」（→ なし）に変わり送金側パターンでは検出できないため。
  *
  * 生成されるレコード: type='振替', category='振替', memo='__asset_report__'
  */
-const INVESTMENT_DEST_MAP: { pattern: RegExp; assetName: string }[] = [
-  { pattern: /→\s*iDeCo/i, assetName: "iDeCo" },
-  { pattern: /→\s*投資信託/i, assetName: "投資信託/SBI" },
-];
+// 資産別レポートのセクション名 → transactions.asset_name のマッピング
+const RECEIVING_INVESTMENT_ASSETS: Record<string, string> = {
+  "iDeCo": "iDeCo",
+  "投資信託/SBI": "投資信託/SBI",
+};
 
 export function extractInvestmentTransfers(csvText: string, fromYear = 2019): ParsedTransaction[] {
   const lines = splitLines(csvText);
@@ -319,14 +323,18 @@ export function extractInvestmentTransfers(csvText: string, fromYear = 2019): Pa
     const col0 = cols[0].trim();
     if (col0 === "名前") continue;
 
-    // 資産名行を検出
+    // 資産別レポートは全データ行の col0 に資産名が入っている
+    // parseAssetReport と同様に continue しない（同行をそのまま処理する）
     if (col0 && !col0.match(/^\d{4}年/)) {
       currentAsset = col0;
-      continue;
     }
     if (!currentAsset) continue;
 
-    // データ行
+    // 投資口座セクション以外はスキップ
+    const destAssetName = RECEIVING_INVESTMENT_ASSETS[currentAsset];
+    if (!destAssetName) continue;
+
+    // col1 が日付形式のデータ行のみ処理
     const col1 = cols[1].trim();
     if (!col1.match(/^\d{4}年/)) continue;
 
@@ -342,28 +350,29 @@ export function extractInvestmentTransfers(csvText: string, fromYear = 2019): Pa
     const itemName = cols[4].trim();
     const amount = toInt(cols[5]);
 
-    // 送金側の振替（支出,振替）かつ itemName に → 投資先 を含む行を抽出
-    if (type === "支出" && category === "振替" && amount > 0) {
-      for (const { pattern, assetName } of INVESTMENT_DEST_MAP) {
-        if (pattern.test(itemName)) {
-          results.push({
-            date: dateStr,
-            year,
-            month,
-            type: "振替",
-            category: "振替",
-            itemName,
-            amount,
-            expenseAmount: 0,
-            incomeAmount: amount,
-            assetName,
-            tag: "振替",
-            memo: "__asset_report__",
-            excludeFromPl: true,
-          });
-          break;
-        }
-      }
+    // 受取側の投資入金を抽出（itemName フォーマットに依存しない）
+    // 旧形式（〜2025-02）: type='収入', category='振替'
+    // 新形式（2025-03〜）: type='振替', category='振替(入金)'
+    const isContribution =
+      (type === "収入" && category === "振替") ||
+      (type === "振替" && category === "振替(入金)");
+
+    if (isContribution && amount > 0) {
+      results.push({
+        date: dateStr,
+        year,
+        month,
+        type: "振替",
+        category: "振替",
+        itemName,
+        amount,
+        expenseAmount: 0,
+        incomeAmount: amount,
+        assetName: destAssetName,
+        tag: "振替",
+        memo: "__asset_report__",
+        excludeFromPl: true,
+      });
     }
   }
 
