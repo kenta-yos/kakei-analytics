@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
 
       // 資産別レポートから投資振替（iDeCo・投資信託）を抽出してトランザクションに保存
       // 収支合算CSVに振替が含まれない旧形式データの累計コスト計算に使用
-      const investmentTransfers = extractInvestmentTransfers(text, 2019);
+      const investmentTransfers = extractInvestmentTransfers(text, 2026);
 
       if (investmentTransfers.length > 0) {
         // 対象年月の既存の合成レコード（__asset_report__）を削除（再インポートに冪等対応）
