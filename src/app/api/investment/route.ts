@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { investmentValuations, assetSnapshots, transactions } from "@/lib/schema";
-import { and, eq, lte, sql, desc } from "drizzle-orm";
+import { and, eq, or, sql, desc } from "drizzle-orm";
 
 // 商品名 → asset_snapshots の asset_name マッピング
 const PRODUCT_TO_ASSET: Record<string, string> = {
@@ -22,9 +22,12 @@ async function getCostBasis(productName: string, uptoYear?: number, uptoMonth?: 
   const assetName = PRODUCT_TO_ASSET[productName];
   if (!assetName) return 0;
 
+  // 新形式: type='収入', category='振替'（収支合算CSV）
+  // 旧形式: type='振替', category='振替'（資産別レポートから抽出した合成レコード）
   const conditions = [
-    eq(transactions.type, "振替"),
+    eq(transactions.category, "振替"),
     eq(transactions.assetName, assetName),
+    sql`income_amount > 0`,
   ];
   if (uptoYear && uptoMonth) {
     conditions.push(

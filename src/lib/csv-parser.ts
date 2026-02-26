@@ -293,6 +293,84 @@ export function aggregateAssetSnapshots(
 }
 
 /**
+ * 資産別レポートから投資への振替（積立）を抽出する
+ *
+ * 収支合算レポートに振替が含まれない旧形式CSVを使っている場合、
+ * 資産別レポートの「送金側」エントリ（例: ゆうちょ → iDeCo）から
+ * 投資コストを計算するための合成トランザクションを生成する。
+ *
+ * 生成されるレコード: type='振替', category='振替', memo='__asset_report__'
+ */
+const INVESTMENT_DEST_MAP: { pattern: RegExp; assetName: string }[] = [
+  { pattern: /→\s*iDeCo/i, assetName: "iDeCo" },
+  { pattern: /→\s*投資信託/i, assetName: "投資信託/SBI" },
+];
+
+export function extractInvestmentTransfers(csvText: string, fromYear = 2019): ParsedTransaction[] {
+  const lines = splitLines(csvText);
+  const results: ParsedTransaction[] = [];
+  let currentAsset = "";
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const cols = parseCSVLine(line);
+    if (cols.length < 6) continue;
+
+    const col0 = cols[0].trim();
+    if (col0 === "名前") continue;
+
+    // 資産名行を検出
+    if (col0 && !col0.match(/^\d{4}年/)) {
+      currentAsset = col0;
+      continue;
+    }
+    if (!currentAsset) continue;
+
+    // データ行
+    const col1 = cols[1].trim();
+    if (!col1.match(/^\d{4}年/)) continue;
+
+    const dateStr = parseJapaneseDate(col1);
+    if (!dateStr) continue;
+
+    const year = parseInt(dateStr.slice(0, 4));
+    const month = parseInt(dateStr.slice(5, 7));
+    if (year < fromYear) continue;
+
+    const type = cols[2].trim();
+    const category = cols[3].trim();
+    const itemName = cols[4].trim();
+    const amount = toInt(cols[5]);
+
+    // 送金側の振替（支出,振替）かつ itemName に → 投資先 を含む行を抽出
+    if (type === "支出" && category === "振替" && amount > 0) {
+      for (const { pattern, assetName } of INVESTMENT_DEST_MAP) {
+        if (pattern.test(itemName)) {
+          results.push({
+            date: dateStr,
+            year,
+            month,
+            type: "振替",
+            category: "振替",
+            itemName,
+            amount,
+            expenseAmount: 0,
+            incomeAmount: amount,
+            assetName,
+            tag: "振替",
+            memo: "__asset_report__",
+            excludeFromPl: true,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
  * 資産名から種別を推定
  */
 function inferAssetType(name: string): string {
