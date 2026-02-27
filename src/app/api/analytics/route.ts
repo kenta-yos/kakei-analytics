@@ -252,22 +252,43 @@ async function getPaymentMethodBreakdown(year: number, month?: number) {
 }
 
 async function getNetAssetTrend(years?: number[]) {
-  const conditions = years && years.length > 0 ? [inArray(assetSnapshots.year, years)] : [];
-  const rows = await db
-    .select({
-      year: assetSnapshots.year,
-      month: assetSnapshots.month,
-      netAssets: sql<number>`SUM(closing_balance)`,
-    })
-    .from(assetSnapshots)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .groupBy(assetSnapshots.year, assetSnapshots.month)
-    .orderBy(assetSnapshots.year, assetSnapshots.month);
+  // 貸借対照表と同じフィルフォワード方式（DISTINCT ON）で計算
+  // 各月の純資産 = 各資産の「その月以前の最新スナップショット」の合計
+  // これにより、スナップショットが欠損している月でも直近値を引き継ぐ
+  const yearWhere =
+    years && years.length > 0
+      ? `WHERE year IN (${years.map(Number).filter(Number.isFinite).join(",")})`
+      : "";
 
-  return rows.map((r) => ({
-    year: r.year,
-    month: r.month,
-    netAssets: Number(r.netAssets ?? 0),
+  const rawQuery = `
+    WITH target_months AS (
+      SELECT DISTINCT year, month, (year * 100 + month) AS ym
+      FROM asset_snapshots
+      ${yearWhere}
+    )
+    SELECT
+      tm.year,
+      tm.month,
+      SUM(r.closing_balance) AS net_assets
+    FROM target_months tm
+    JOIN LATERAL (
+      SELECT DISTINCT ON (asset_name) closing_balance
+      FROM asset_snapshots s
+      WHERE (s.year * 100 + s.month) <= tm.ym
+      ORDER BY asset_name, (s.year * 100 + s.month) DESC
+    ) r ON true
+    GROUP BY tm.year, tm.month
+    ORDER BY tm.year, tm.month
+  `;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await db.execute(sql.raw(rawQuery));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (result.rows as any[]).map((r) => ({
+    year: Number(r.year),
+    month: Number(r.month),
+    netAssets: Number(r.net_assets ?? 0),
   }));
 }
 
