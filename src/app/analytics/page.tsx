@@ -27,8 +27,12 @@ export default function AnalyticsPage() {
   const [cmpP1Month, setCmpP1Month] = useState<number | "">("");
   const [cmpP2Year, setCmpP2Year] = useState(now.getFullYear());
   const [cmpP2Month, setCmpP2Month] = useState<number | "">(now.getMonth() + 1);
+  type TxDetail = { itemName: string; amount: number; date: string };
   const [cmpData, setCmpData] = useState<{
-    comparison: Array<{ category: string; amount1: number; amount2: number; diff: number; diffPct: number | null }>;
+    comparison: Array<{
+      category: string; amount1: number; amount2: number; diff: number; diffPct: number | null;
+      topTransactions1: TxDetail[]; topTransactions2: TxDetail[];
+    }>;
     summary: { total1: number; total2: number };
   } | null>(null);
   const [cmpLoading, setCmpLoading] = useState(false);
@@ -91,11 +95,26 @@ export default function AnalyticsPage() {
     try {
       const topDiffs = cmpData.comparison
         .filter((r) => r.amount1 > 0 || r.amount2 > 0)
-        .slice(0, 15)
-        .map((r) => `・${r.category}: ${r.amount1 > 0 ? formatCurrency(r.amount1) : "なし"} → ${r.amount2 > 0 ? formatCurrency(r.amount2) : "なし"}（${r.diff > 0 ? "+" : ""}${formatCurrency(r.diff)}${r.diffPct !== null ? `、${r.diff > 0 ? "+" : ""}${r.diffPct}%` : ""}）`)
+        .slice(0, 12)
+        .map((r) => {
+          const header = `・${r.category}: ${r.amount1 > 0 ? formatCurrency(r.amount1) : "なし"} → ${r.amount2 > 0 ? formatCurrency(r.amount2) : "なし"}（${r.diff > 0 ? "+" : ""}${formatCurrency(r.diff)}${r.diffPct !== null ? `、${r.diff > 0 ? "+" : ""}${r.diffPct}%` : ""}）`;
+          // 期間1の主要取引
+          const tx1 = r.topTransactions1.slice(0, 4).map(
+            (t) => `    - ${t.date} ${t.itemName || "(項目名なし)"} ¥${t.amount.toLocaleString()}`
+          ).join("\n");
+          // 期間2の主要取引
+          const tx2 = r.topTransactions2.slice(0, 4).map(
+            (t) => `    - ${t.date} ${t.itemName || "(項目名なし)"} ¥${t.amount.toLocaleString()}`
+          ).join("\n");
+          const txSection = [
+            tx1 ? `  【${cmpLabel1}】主要取引:\n${tx1}` : "",
+            tx2 ? `  【${cmpLabel2}】主要取引:\n${tx2}` : "",
+          ].filter(Boolean).join("\n");
+          return txSection ? `${header}\n${txSection}` : header;
+        })
         .join("\n");
-      const context = `【${cmpLabel1}】合計支出: ${formatCurrency(cmpData.summary.total1)}\n【${cmpLabel2}】合計支出: ${formatCurrency(cmpData.summary.total2)}\n\nカテゴリ別増減（変化が大きい順）:\n${topDiffs}`;
-      const prompt = `上記の2期間【${cmpLabel1}】vs【${cmpLabel2}】の支出比較データを分析してください。支出変化の要因として特に重要なものを上位5つ、それぞれ具体的な金額・増減率・考えられる理由を含めてわかりやすく説明してください。`;
+      const context = `【${cmpLabel1}】合計支出: ${formatCurrency(cmpData.summary.total1)}\n【${cmpLabel2}】合計支出: ${formatCurrency(cmpData.summary.total2)}\n\nカテゴリ別増減（変化が大きい順・各カテゴリの主要取引明細付き）:\n${topDiffs}`;
+      const prompt = `上記の2期間【${cmpLabel1}】vs【${cmpLabel2}】の支出比較データを、取引明細も踏まえて分析してください。支出変化の要因として特に重要なものを上位5つ、それぞれ具体的な取引内容・金額・増減率・考えられる理由を含めてわかりやすく説明してください。`;
       const res = await fetch("/api/gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

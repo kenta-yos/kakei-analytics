@@ -271,13 +271,49 @@ async function getNetAssetTrend(years?: number[]) {
   }));
 }
 
+/** カテゴリ別に高額順上位 N 件の取引を返す（Gemini コンテキスト用） */
+async function getTopTransactionsByCategory(year: number, month?: number, limitPerCat = 5) {
+  const conditions = [
+    eq(transactions.year, year),
+    eq(transactions.excludeFromPl, false),
+    ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
+    eq(transactions.type, "支出"),
+  ];
+  if (month) conditions.push(eq(transactions.month, month));
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      itemName: transactions.itemName,
+      expenseAmount: transactions.expenseAmount,
+      date: transactions.date,
+    })
+    .from(transactions)
+    .where(and(...conditions))
+    .orderBy(desc(transactions.expenseAmount));
+
+  const byCategory = new Map<string, Array<{ itemName: string; amount: number; date: string }>>();
+  for (const row of rows) {
+    const cat = row.category;
+    const list = byCategory.get(cat) ?? [];
+    if (list.length < limitPerCat) {
+      list.push({ itemName: row.itemName ?? "", amount: Number(row.expenseAmount), date: row.date });
+      byCategory.set(cat, list);
+    }
+  }
+  return byCategory;
+}
+
 async function getComparisonData(
   p1Year: number, p1Month: number | undefined,
   p2Year: number, p2Month: number | undefined
 ) {
-  const [data1, data2] = await Promise.all([
+  const [data1, data2, topTx1, topTx2] = await Promise.all([
     getCategoryBreakdown(p1Year, p1Month),
     getCategoryBreakdown(p2Year, p2Month),
+    getTopTransactionsByCategory(p1Year, p1Month),
+    getTopTransactionsByCategory(p2Year, p2Month),
   ]);
   const allCategories = [...new Set([...data1.map((r) => r.category), ...data2.map((r) => r.category)])];
   const data1Map = new Map(data1.map((r) => [r.category, r.total]));
@@ -286,7 +322,15 @@ async function getComparisonData(
     const a1 = data1Map.get(cat) ?? 0;
     const a2 = data2Map.get(cat) ?? 0;
     const diff = a2 - a1;
-    return { category: cat, amount1: a1, amount2: a2, diff, diffPct: a1 > 0 ? Math.round((diff / a1) * 100) : null };
+    return {
+      category: cat,
+      amount1: a1,
+      amount2: a2,
+      diff,
+      diffPct: a1 > 0 ? Math.round((diff / a1) * 100) : null,
+      topTransactions1: topTx1.get(cat) ?? [],
+      topTransactions2: topTx2.get(cat) ?? [],
+    };
   }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
   return {
     comparison,

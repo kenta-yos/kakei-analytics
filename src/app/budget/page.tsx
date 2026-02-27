@@ -152,7 +152,8 @@ export default function BudgetPage() {
         if (ex) {
           newEditMap[cat] = {
             allocation: ex.allocation,
-            carryover: ex.carryover,
+            // 保存済み値ではなく API から毎回再計算した繰越を使う（前月実績の更新を反映するため）
+            carryover: carryoverMap.get(cat) ?? 0,
             enabled: true,
           };
         } else {
