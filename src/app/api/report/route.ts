@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions, assetSnapshots, reportAnalyses } from "@/lib/schema";
-import { eq, and, sql, ne } from "drizzle-orm";
+import { eq, and, sql, ne, inArray, desc } from "drizzle-orm";
 import { analyzeWithGemini } from "@/lib/gemini";
 
 export async function GET(req: NextRequest) {
@@ -127,10 +127,108 @@ export async function POST(req: NextRequest) {
 }
 
 // ──────────────────────────────────────────────
+// 取引明細ヘルパー（Gemini コンテキスト用）
+// ──────────────────────────────────────────────
+
+/** 期間内の支出カテゴリ別上位取引 */
+async function getTopTransactionsForPeriod(
+  year: number,
+  months?: number[],
+  limitPerCat = 5,
+  topCatCount = 10
+) {
+  const conditions = [
+    eq(transactions.year, year),
+    eq(transactions.excludeFromPl, false),
+    ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
+    eq(transactions.type, "支出"),
+  ];
+  if (months && months.length > 0) conditions.push(inArray(transactions.month, months));
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      itemName: transactions.itemName,
+      expenseAmount: transactions.expenseAmount,
+      date: transactions.date,
+    })
+    .from(transactions)
+    .where(and(...conditions))
+    .orderBy(desc(transactions.expenseAmount));
+
+  // カテゴリ合計を算出
+  const catTotals = new Map<string, number>();
+  for (const r of rows) {
+    catTotals.set(r.category, (catTotals.get(r.category) ?? 0) + Number(r.expenseAmount));
+  }
+
+  // 合計上位 topCatCount カテゴリを選択
+  const topCats = new Set(
+    Array.from(catTotals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topCatCount)
+      .map(([cat]) => cat)
+  );
+
+  // カテゴリ別に上位 limitPerCat 件を収集
+  const catMap = new Map<string, Array<{ 日付: string; 項目: string; 金額: number }>>();
+  for (const r of rows) {
+    if (!topCats.has(r.category)) continue;
+    const list = catMap.get(r.category) ?? [];
+    if (list.length < limitPerCat) {
+      list.push({ 日付: r.date, 項目: r.itemName ?? "(項目名なし)", 金額: Number(r.expenseAmount) });
+      catMap.set(r.category, list);
+    }
+  }
+
+  const result: Record<string, { 合計: number; 取引明細: Array<{ 日付: string; 項目: string; 金額: number }> }> = {};
+  for (const cat of topCats) {
+    result[cat] = { 合計: catTotals.get(cat) ?? 0, 取引明細: catMap.get(cat) ?? [] };
+  }
+  return result;
+}
+
+/** 期間内の高額支出 TOP N */
+async function getHighExpenseTransactions(year: number, months?: number[], limit = 20) {
+  const conditions = [
+    eq(transactions.year, year),
+    eq(transactions.excludeFromPl, false),
+    ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
+    eq(transactions.type, "支出"),
+  ];
+  if (months && months.length > 0) conditions.push(inArray(transactions.month, months));
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      itemName: transactions.itemName,
+      expenseAmount: transactions.expenseAmount,
+      date: transactions.date,
+    })
+    .from(transactions)
+    .where(and(...conditions))
+    .orderBy(desc(transactions.expenseAmount))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    日付: r.date,
+    カテゴリ: r.category,
+    項目: r.itemName ?? "(項目名なし)",
+    金額: Number(r.expenseAmount),
+  }));
+}
+
+// ──────────────────────────────────────────────
 // Gemini コンテキスト構築
 // ──────────────────────────────────────────────
 async function buildAnnualContext(year: number): Promise<string> {
-  const data = await getAnnualReport(year);
+  const [data, categoryTx, highExpenses] = await Promise.all([
+    getAnnualReport(year),
+    getTopTransactionsForPeriod(year, undefined, 5, 10),
+    getHighExpenseTransactions(year, undefined, 20),
+  ]);
   return JSON.stringify({
     year: data.year,
     収入: { 当年: data.income.current, 前年: data.income.prev, 前年比: data.income.yoy },
@@ -147,24 +245,42 @@ async function buildAnnualContext(year: number): Promise<string> {
     月別収支: data.monthly,
     支出カテゴリランキング: data.categories.slice(0, 15),
     ハイライト: data.highlights,
+    カテゴリ別取引明細_上位10カテゴリ各5件: categoryTx,
+    年間高額支出TOP20: highExpenses,
   }, null, 2);
 }
 
 async function buildQuarterlyContext(year: number): Promise<string> {
   const data = await getQuarterlyReport(year);
+
+  // 各四半期の取引明細を並列取得
+  const quarterTxResults = await Promise.all(
+    QUARTERS.map((qDef) =>
+      Promise.all([
+        getTopTransactionsForPeriod(year, qDef.months, 3, 5),
+        getHighExpenseTransactions(year, qDef.months, 10),
+      ])
+    )
+  );
+
   return JSON.stringify({
     year: data.year,
-    四半期別: data.quarters.map((q) => ({
-      期間: q.label,
-      収入: q.income,
-      支出: q.expense,
-      純損益: q.netIncome,
-      貯蓄率: q.savingsRate,
-      四半期末純資産: q.netAsset,
-      前年同期比収入: q.yoy.income,
-      前年同期比支出: q.yoy.expense,
-      支出TOP5カテゴリ: q.topCategories,
-    })),
+    四半期別: data.quarters.map((q, i) => {
+      const [catTx, highExp] = quarterTxResults[i];
+      return {
+        期間: q.label,
+        収入: q.income,
+        支出: q.expense,
+        純損益: q.netIncome,
+        貯蓄率: q.savingsRate,
+        四半期末純資産: q.netAsset,
+        前年同期比収入: q.yoy.income,
+        前年同期比支出: q.yoy.expense,
+        支出TOP5カテゴリ: q.topCategories,
+        カテゴリ別取引明細_上位5カテゴリ各3件: catTx,
+        高額支出TOP10: highExp,
+      };
+    }),
     月別詳細: data.monthly,
   }, null, 2);
 }
