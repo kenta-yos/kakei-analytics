@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { transactions, assetSnapshots } from "@/lib/schema";
+import { transactions, assetSnapshots, investmentValuations } from "@/lib/schema";
 import {
   parseCombinedReport,
   parseAssetReport,
@@ -74,9 +74,26 @@ export async function POST(req: NextRequest) {
       const assetTxList = parseAssetReport(text, 2019);
       const snapshots = aggregateAssetSnapshots(assetTxList);
 
+      // 投資管理で評価額が登録済みの月は CSV で上書きしない
+      // investment_valuations に記録がある (year, month) を取得
+      const INVESTMENT_ASSET_NAMES = new Set(["iDeCo", "投資信託/SBI"]);
+      const valuationRows = await db
+        .select({ year: investmentValuations.year, month: investmentValuations.month })
+        .from(investmentValuations);
+      const valuatedMonths = new Set(valuationRows.map((v) => `${v.year}-${v.month}`));
+
+      // 投資口座 vs その他に分離
+      const investSnapshots = snapshots.filter((s) => INVESTMENT_ASSET_NAMES.has(s.assetName));
+      const otherSnapshots = snapshots.filter((s) => !INVESTMENT_ASSET_NAMES.has(s.assetName));
+      // 投資口座は investment_valuations が存在しない月のみ更新
+      const investSnapsToUpsert = investSnapshots.filter(
+        (s) => !valuatedMonths.has(`${s.year}-${s.month}`)
+      );
+      const snapsToUpsert = [...otherSnapshots, ...investSnapsToUpsert];
+
       const BATCH = 200;
-      for (let i = 0; i < snapshots.length; i += BATCH) {
-        const batch = snapshots.slice(i, i + BATCH);
+      for (let i = 0; i < snapsToUpsert.length; i += BATCH) {
+        const batch = snapsToUpsert.slice(i, i + BATCH);
         await db
           .insert(assetSnapshots)
           .values(batch)
