@@ -1,13 +1,13 @@
 /**
  * Gemini API ユーティリティ
- * - 無料枠: 1日 400 リクエスト上限で制御
+ * - 無料枠: 1日 250回制限のうちアプリ上限を 200回に設定
  * - 使用状況は gemini_usage テーブルで管理
  */
 import { db } from "./db";
 import { geminiUsage } from "./schema";
 import { eq, sql } from "drizzle-orm";
 
-export const GEMINI_DAILY_LIMIT = 400;
+export const GEMINI_DAILY_LIMIT = 200;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 /** 日本時間の今日の日付を YYYY-MM-DD で返す */
