@@ -5,8 +5,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { fireSettings, assetSnapshots, transactions } from "@/lib/schema";
-import { and, eq, sql, ne, desc } from "drizzle-orm";
+import { fireSettings, transactions } from "@/lib/schema";
+import { and, eq, sql, ne } from "drizzle-orm";
 
 export async function GET() {
   try {
@@ -27,30 +27,18 @@ export async function GET() {
       updatedAt: null,
     };
 
-    // 最新の純資産（asset_snapshots の最新月合計）
-    const latestAssetMonth = await db
-      .select({
-        year: assetSnapshots.year,
-        month: assetSnapshots.month,
-      })
-      .from(assetSnapshots)
-      .orderBy(desc(assetSnapshots.year), desc(assetSnapshots.month))
-      .limit(1);
-
-    let currentNetAssets = 0;
-    if (latestAssetMonth.length > 0) {
-      const { year, month } = latestAssetMonth[0];
-      const netAssetRows = await db
-        .select({ net: sql<number>`sum(closing_balance)` })
-        .from(assetSnapshots)
-        .where(
-          and(
-            eq(assetSnapshots.year, year),
-            eq(assetSnapshots.month, month)
-          )
-        );
-      currentNetAssets = Number(netAssetRows[0]?.net ?? 0);
-    }
+    // 最新の純資産（貸借対照表と同じフィルフォワード方式）
+    // 各資産の最新スナップショットを集計することで、更新頻度の違う資産も正しく反映する
+    const netAssetResult = await db.execute(sql`
+      SELECT SUM(latest_balance) AS net
+      FROM (
+        SELECT DISTINCT ON (asset_name) closing_balance AS latest_balance
+        FROM asset_snapshots
+        ORDER BY asset_name, (year * 100 + month) DESC
+      ) t
+    `);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const currentNetAssets = Number((netAssetResult.rows as any[])[0]?.net ?? 0);
 
     // 過去12ヶ月の月間支出平均（excludeFromPl=false, 振替除外）
     const now = new Date(Date.now() + 9 * 60 * 60 * 1000);

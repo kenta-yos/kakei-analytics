@@ -98,26 +98,9 @@ export default function StandardBudgetPage() {
   function applyReferenceIncome() {
     const income = parseInt(incomeInput.replace(/,/g, ""), 10);
     if (!income || income <= 0) return;
+    // 参考値列（getRefValue）は referenceIncome に依存して自動更新される
+    // 設定予算（editMap）は変更しない
     setReferenceIncome(income);
-
-    // 参考値を allocation に適用
-    const totalPastExpense = pastYear.reduce((s, p) => s + p.monthlyAvg, 0);
-    setEditMap((prev) => {
-      const next = { ...prev };
-      for (const cat of categories) {
-        const fixedRatio = FIXED_RATIO[cat];
-        if (fixedRatio !== undefined) {
-          next[cat] = { ...next[cat], allocation: Math.round(income * fixedRatio / 100) };
-        } else {
-          const p = pastYear.find((p) => p.category === cat);
-          if (p && totalPastExpense > 0) {
-            const ratio = p.monthlyAvg / totalPastExpense;
-            next[cat] = { ...next[cat], allocation: Math.round(income * ratio) };
-          }
-        }
-      }
-      return next;
-    });
   }
 
   function getRefValue(cat: string): number {
@@ -127,10 +110,16 @@ export default function StandardBudgetPage() {
     }
     const p = pastYear.find((p) => p.category === cat);
     if (!p) return 0;
+    // 固定カテゴリが占める比率分を差し引いた残りを非固定カテゴリで按分
+    // 例: 貯蓄3% + 貯蓄（投信）7% = 10% → 非固定で残り90%を分配
+    const totalFixedRatio = Object.values(FIXED_RATIO).reduce((s, r) => s + r, 0);
+    const remainingRate = (100 - totalFixedRatio) / 100;
+    const nonFixedPastTotal = pastYear
+      .filter((pp) => FIXED_RATIO[pp.category] === undefined)
+      .reduce((s, pp) => s + pp.monthlyAvg, 0);
     if (referenceIncome <= 0) return p.monthlyAvg;
-    const totalPastExpense = pastYear.reduce((s, pp) => s + pp.monthlyAvg, 0);
-    if (totalPastExpense <= 0) return p.monthlyAvg;
-    return Math.round(referenceIncome * (p.monthlyAvg / totalPastExpense));
+    if (nonFixedPastTotal <= 0) return p.monthlyAvg;
+    return Math.round(referenceIncome * remainingRate * (p.monthlyAvg / nonFixedPastTotal));
   }
 
   function getRatio(cat: string): string {
