@@ -12,17 +12,38 @@ type MonthlySummary = {
   categories?: Record<string, { expense: number; income: number; count: number }>;
 };
 
+type QuarterlySummary = {
+  year: number;
+  quarter: number;
+  months: number[];
+  totalIncome: number;
+  totalExpense: number;
+  netIncome: number;
+  categories: Record<string, { expense: number; income: number; count: number }>;
+};
+
+type QuarterRow = {
+  quarter: number;
+  label: string;
+  income: number;
+  expense: number;
+  months: MonthlySummary[];
+};
+
 export default function PLPage() {
   const now = new Date();
-  const [mode, setMode] = useState<"monthly" | "yearly">("monthly");
+  const [mode, setMode] = useState<"monthly" | "quarterly" | "yearly">("monthly");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [data, setData] = useState<MonthlySummary[]>([]);
   const [detail, setDetail] = useState<MonthlySummary | null>(null);
+  const [quarterDetail, setQuarterDetail] = useState<QuarterlySummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [qDetailLoading, setQDetailLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setQuarterDetail(null);
     try {
       if (mode === "monthly") {
         const res = await fetch(`/api/summary?year=${year}&month=${month}`);
@@ -30,6 +51,7 @@ export default function PLPage() {
         setDetail(json.data);
         setData([]);
       } else {
+        // quarterly も yearly も月別データを取得してフロントで集計
         const res = await fetch(`/api/summary?year=${year}`);
         const json = await res.json();
         setData(json.data ?? []);
@@ -42,6 +64,21 @@ export default function PLPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  async function fetchQuarterDetail(q: number) {
+    if (quarterDetail?.quarter === q) {
+      setQuarterDetail(null);
+      return;
+    }
+    setQDetailLoading(true);
+    try {
+      const res = await fetch(`/api/summary?year=${year}&quarter=${q}`);
+      const json = await res.json();
+      setQuarterDetail(json.data ?? null);
+    } finally {
+      setQDetailLoading(false);
+    }
+  }
+
   const yearTotal = data.reduce(
     (acc, d) => ({
       income: acc.income + d.totalIncome,
@@ -50,18 +87,34 @@ export default function PLPage() {
     { income: 0, expense: 0 }
   );
 
+  // 四半期ごとに集計
+  const quarterRows: QuarterRow[] = [1, 2, 3, 4].map((q) => {
+    const qMonths = data.filter((d) => Math.ceil(d.month / 3) === q);
+    return {
+      quarter: q,
+      label: `Q${q} (${(q - 1) * 3 + 1}〜${q * 3}月)`,
+      income: qMonths.reduce((s, d) => s + d.totalIncome, 0),
+      expense: qMonths.reduce((s, d) => s + d.totalExpense, 0),
+      months: qMonths,
+    };
+  });
+
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">損益計算書</h1>
-          <p className="text-slate-400 text-sm mt-0.5">振替・除外項目を除いた実際の収支</p>
+          <p className="text-slate-400 text-sm mt-0.5">振替・除外項目を除いた実際の収支（投資損益含む）</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-slate-800 rounded-lg p-0.5">
             <button onClick={() => setMode("monthly")}
               className={`px-3 py-1.5 text-sm rounded-md transition ${mode === "monthly" ? "bg-blue-600 text-white" : "text-slate-400"}`}>
               月次
+            </button>
+            <button onClick={() => setMode("quarterly")}
+              className={`px-3 py-1.5 text-sm rounded-md transition ${mode === "quarterly" ? "bg-blue-600 text-white" : "text-slate-400"}`}>
+              四半期
             </button>
             <button onClick={() => setMode("yearly")}
               className={`px-3 py-1.5 text-sm rounded-md transition ${mode === "yearly" ? "bg-blue-600 text-white" : "text-slate-400"}`}>
@@ -89,9 +142,148 @@ export default function PLPage() {
         <p className="text-slate-500">読み込み中...</p>
       ) : mode === "monthly" && detail ? (
         <MonthlyPL detail={detail} />
+      ) : mode === "quarterly" ? (
+        <QuarterlyPL
+          quarterRows={quarterRows}
+          year={year}
+          yearTotal={yearTotal}
+          quarterDetail={quarterDetail}
+          qDetailLoading={qDetailLoading}
+          onSelectQuarter={fetchQuarterDetail}
+        />
       ) : mode === "yearly" ? (
         <YearlyPL data={data} year={year} yearTotal={yearTotal} />
       ) : null}
+    </div>
+  );
+}
+
+function QuarterlyPL({
+  quarterRows, year, yearTotal, quarterDetail, qDetailLoading, onSelectQuarter,
+}: {
+  quarterRows: QuarterRow[];
+  year: number;
+  yearTotal: { income: number; expense: number };
+  quarterDetail: QuarterlySummary | null;
+  qDetailLoading: boolean;
+  onSelectQuarter: (q: number) => void;
+}) {
+  const netTotal = yearTotal.income - yearTotal.expense;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <Card>
+          <CardTitle>{year}年 収入合計</CardTitle>
+          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(yearTotal.income)}</p>
+        </Card>
+        <Card>
+          <CardTitle>{year}年 支出合計</CardTitle>
+          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(yearTotal.expense)}</p>
+        </Card>
+        <Card>
+          <CardTitle>{year}年 純損益</CardTitle>
+          <p className={`text-xl sm:text-2xl font-bold ${netTotal >= 0 ? "text-green-400" : "text-red-400"}`}>
+            {formatCurrencySigned(netTotal)}
+          </p>
+        </Card>
+      </div>
+      <Card>
+        <CardTitle>四半期別損益</CardTitle>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>期間</th>
+              <th className="text-right">収入</th>
+              <th className="text-right">支出</th>
+              <th className="text-right">純損益</th>
+            </tr>
+          </thead>
+          <tbody>
+            {quarterRows.map((q) => {
+              const net = q.income - q.expense;
+              const isSelected = quarterDetail?.quarter === q.quarter;
+              return (
+                <tr
+                  key={q.quarter}
+                  onClick={() => onSelectQuarter(q.quarter)}
+                  className={`cursor-pointer hover:bg-slate-800/50 transition ${isSelected ? "bg-slate-800/60" : ""}`}
+                >
+                  <td className={`font-medium ${isSelected ? "text-blue-300" : "text-slate-300"}`}>
+                    {q.label}
+                    <span className="ml-1.5 text-xs text-slate-500">▶</span>
+                  </td>
+                  <td className="text-right text-green-400">{q.income > 0 ? formatCurrency(q.income) : "—"}</td>
+                  <td className="text-right text-red-400">{q.expense > 0 ? formatCurrency(q.expense) : "—"}</td>
+                  <td className={`text-right font-medium ${net >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {q.income + q.expense > 0 ? formatCurrencySigned(net) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="font-semibold border-t border-slate-700">
+              <td className="text-white">合計</td>
+              <td className="text-right text-green-400">{formatCurrency(yearTotal.income)}</td>
+              <td className="text-right text-red-400">{formatCurrency(yearTotal.expense)}</td>
+              <td className={`text-right ${netTotal >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {formatCurrencySigned(netTotal)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
+
+      {/* 四半期別カテゴリ内訳 */}
+      {qDetailLoading && <p className="text-slate-500 text-sm">読み込み中...</p>}
+      {!qDetailLoading && quarterDetail && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardTitle>Q{quarterDetail.quarter} 支出明細</CardTitle>
+            <table className="data-table">
+              <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
+              <tbody>
+                {Object.entries(quarterDetail.categories)
+                  .filter(([, v]) => v.expense > 0)
+                  .sort((a, b) => b[1].expense - a[1].expense)
+                  .map(([cat, v]) => (
+                    <tr key={cat}>
+                      <td className="text-slate-300">{cat}</td>
+                      <td className="text-right text-red-300">{formatCurrency(v.expense)}</td>
+                      <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+                    </tr>
+                  ))}
+                <tr className="font-semibold">
+                  <td className="text-white">合計</td>
+                  <td className="text-right text-red-400">{formatCurrency(quarterDetail.totalExpense)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </Card>
+          <Card>
+            <CardTitle>Q{quarterDetail.quarter} 収入明細</CardTitle>
+            <table className="data-table">
+              <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
+              <tbody>
+                {Object.entries(quarterDetail.categories)
+                  .filter(([, v]) => v.income > 0)
+                  .sort((a, b) => b[1].income - a[1].income)
+                  .map(([cat, v]) => (
+                    <tr key={cat}>
+                      <td className="text-slate-300">{cat}</td>
+                      <td className="text-right text-green-300">{formatCurrency(v.income)}</td>
+                      <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+                    </tr>
+                  ))}
+                <tr className="font-semibold">
+                  <td className="text-white">合計</td>
+                  <td className="text-right text-green-400">{formatCurrency(quarterDetail.totalIncome)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

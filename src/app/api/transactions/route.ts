@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions } from "@/lib/schema";
-import { eq, and, gte, lte, desc, asc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc, asc, sql, ilike, or } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -9,6 +9,8 @@ export async function GET(req: NextRequest) {
   const month = searchParams.get("month") ? parseInt(searchParams.get("month")!) : null;
   const category = searchParams.get("category");
   const type = searchParams.get("type");
+  const keyword = searchParams.get("keyword");
+  const amount = searchParams.get("amount") ? parseInt(searchParams.get("amount")!) : null;
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = parseInt(searchParams.get("limit") ?? "50");
   const offset = (page - 1) * limit;
@@ -19,6 +21,8 @@ export async function GET(req: NextRequest) {
     if (month) conditions.push(eq(transactions.month, month));
     if (category) conditions.push(eq(transactions.category, category));
     if (type) conditions.push(eq(transactions.type, type));
+    if (keyword) conditions.push(ilike(transactions.itemName, `%${keyword}%`));
+    if (amount) conditions.push(or(eq(transactions.expenseAmount, amount), eq(transactions.incomeAmount, amount))!);
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 

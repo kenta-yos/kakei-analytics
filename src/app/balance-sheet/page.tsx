@@ -71,13 +71,24 @@ export default function BalanceSheetPage() {
           <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">貸借対照表</h1>
           <p className="text-slate-400 text-sm mt-0.5">月末時点の資産・負債・純資産</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
             className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
             {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
               <option key={y} value={y}>{y}年</option>
             ))}
           </select>
+          <div className="flex bg-slate-800 rounded-lg p-0.5">
+            {([1, 2, 3, 4] as const).map((q) => (
+              <button
+                key={q}
+                onClick={() => setMonth(q * 3)}
+                className={`px-2.5 py-1.5 text-xs rounded-md transition ${month === q * 3 ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200"}`}
+              >
+                Q{q}
+              </button>
+            ))}
+          </div>
           <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
             className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (

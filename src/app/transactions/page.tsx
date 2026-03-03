@@ -11,6 +11,8 @@ export default function TransactionsPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [type, setType] = useState("");
   const [category, setCategory] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [amount, setAmount] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
@@ -20,14 +22,13 @@ export default function TransactionsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        year: String(year),
-        month: String(month),
-        page: String(page),
-        limit: String(LIMIT),
-      });
+      const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
+      if (year) params.set("year", String(year));
+      if (month) params.set("month", String(month));
       if (type) params.set("type", type);
       if (category) params.set("category", category);
+      if (keyword.trim()) params.set("keyword", keyword.trim());
+      if (amount.trim()) params.set("amount", amount.trim());
       const res = await fetch(`/api/transactions?${params}`);
       const json = await res.json();
       setData(json.data ?? []);
@@ -35,9 +36,9 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, month, type, category, page]);
+  }, [year, month, type, category, keyword, amount, page]);
 
-  useEffect(() => { setPage(1); }, [year, month, type, category]);
+  useEffect(() => { setPage(1); }, [year, month, type, category, keyword, amount]);
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -50,12 +51,14 @@ export default function TransactionsPage() {
       <div className="flex flex-wrap gap-3 mb-5">
         <select value={year} onChange={(e) => setYear(Number(e.target.value))}
           className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+          <option value={0}>すべての年</option>
           {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
             <option key={y} value={y}>{y}年</option>
           ))}
         </select>
         <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
           className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+          <option value={0}>すべての月</option>
           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
             <option key={m} value={m}>{m}月</option>
           ))}
@@ -71,9 +74,40 @@ export default function TransactionsPage() {
           value={category}
           onChange={setCategory}
           type="all"
-          year={year}
+          year={year || undefined}
           allLabel="すべてのカテゴリ"
         />
+      </div>
+      {/* キーワード・金額検索 */}
+      <div className="flex flex-wrap gap-3 mb-5">
+        <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2 border border-slate-700 min-w-48">
+          <span className="text-slate-500 text-sm">🔍</span>
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="項目名で検索"
+            style={{ fontSize: "16px" }}
+            className="bg-transparent text-white text-sm outline-none w-full"
+          />
+          {keyword && (
+            <button onClick={() => setKeyword("")} className="text-slate-500 hover:text-slate-300 text-xs">✕</button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2 border border-slate-700">
+          <span className="text-slate-500 text-sm">¥</span>
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="金額（完全一致）"
+            style={{ fontSize: "16px" }}
+            className="bg-transparent text-white text-sm outline-none w-32"
+          />
+          {amount && (
+            <button onClick={() => setAmount("")} className="text-slate-500 hover:text-slate-300 text-xs">✕</button>
+          )}
+        </div>
         <span className="text-slate-500 text-sm self-center">{total.toLocaleString()}件</span>
       </div>
 

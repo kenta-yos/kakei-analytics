@@ -7,12 +7,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions } from "@/lib/schema";
-import { eq, and, inArray, sql, ne } from "drizzle-orm";
+import { eq, and, inArray, sql, ne, or } from "drizzle-orm";
+
+// 投資損益は excludeFromPl=true でも P&L に含める
+const plCondition = or(eq(transactions.excludeFromPl, false), eq(transactions.category, "投資損益"))!;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const year = searchParams.get("year") ? parseInt(searchParams.get("year")!) : null;
   const month = searchParams.get("month") ? parseInt(searchParams.get("month")!) : null;
+  const quarter = searchParams.get("quarter") ? parseInt(searchParams.get("quarter")!) : null;
   const yearsParam = searchParams.get("years");
 
   try {
@@ -20,6 +24,12 @@ export async function GET(req: NextRequest) {
       // 年次比較: 複数年の年次サマリーを返す
       const years = yearsParam.split(",").map(Number).filter(Boolean);
       const data = await getYearlySummaries(years);
+      return NextResponse.json({ data });
+    }
+
+    if (year && quarter) {
+      // 四半期詳細（カテゴリ別内訳付き）
+      const data = await getQuarterlySummary(year, quarter);
       return NextResponse.json({ data });
     }
 
@@ -45,7 +55,6 @@ export async function GET(req: NextRequest) {
 }
 
 async function getMonthlySummary(year: number, month: number) {
-  // 収支計算に含めるもの（振替除外・excludeFromPl=false）
   const rows = await db
     .select({
       type: transactions.type,
@@ -59,7 +68,7 @@ async function getMonthlySummary(year: number, month: number) {
       and(
         eq(transactions.year, year),
         eq(transactions.month, month),
-        eq(transactions.excludeFromPl, false),
+        plCondition,
         ne(transactions.type, "振替"),
         ne(transactions.category, "振替")
       )
@@ -102,7 +111,7 @@ async function getYearlyMonthlyBreakdown(year: number) {
     .where(
       and(
         eq(transactions.year, year),
-        eq(transactions.excludeFromPl, false),
+        plCondition,
         ne(transactions.type, "振替"),
         ne(transactions.category, "振替")
       )
@@ -119,9 +128,57 @@ async function getYearlyMonthlyBreakdown(year: number) {
   }));
 }
 
+async function getQuarterlySummary(year: number, quarter: number) {
+  const qMonths = [1, 2, 3].map(m => m + (quarter - 1) * 3);
+  const rows = await db
+    .select({
+      type: transactions.type,
+      category: transactions.category,
+      totalExpense: sql<number>`sum(expense_amount)`,
+      totalIncome: sql<number>`sum(income_amount)`,
+      count: sql<number>`count(*)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.year, year),
+        inArray(transactions.month, qMonths),
+        plCondition,
+        ne(transactions.type, "振替"),
+        ne(transactions.category, "振替")
+      )
+    )
+    .groupBy(transactions.type, transactions.category)
+    .orderBy(sql`sum(expense_amount) desc`);
+
+  const categories: Record<string, { expense: number; income: number; count: number }> = {};
+  let totalIncome = 0;
+  let totalExpense = 0;
+
+  for (const row of rows) {
+    const key = row.category;
+    if (!categories[key]) categories[key] = { expense: 0, income: 0, count: 0 };
+    categories[key].expense += Number(row.totalExpense ?? 0);
+    categories[key].income += Number(row.totalIncome ?? 0);
+    categories[key].count += Number(row.count ?? 0);
+    totalExpense += Number(row.totalExpense ?? 0);
+    totalIncome += Number(row.totalIncome ?? 0);
+  }
+
+  return {
+    year,
+    quarter,
+    months: qMonths,
+    totalIncome,
+    totalExpense,
+    netIncome: totalIncome - totalExpense,
+    categories,
+  };
+}
+
 async function getYearlySummaries(years?: number[]) {
   const conditions = [
-    eq(transactions.excludeFromPl, false),
+    plCondition,
     ne(transactions.type, "振替"),
     ne(transactions.category, "振替"),
   ];
