@@ -95,14 +95,6 @@ export default function StandardBudgetPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  function applyReferenceIncome() {
-    const income = parseInt(incomeInput.replace(/,/g, ""), 10);
-    if (!income || income <= 0) return;
-    // 参考値列（getRefValue）は referenceIncome に依存して自動更新される
-    // 設定予算（editMap）は変更しない
-    setReferenceIncome(income);
-  }
-
   function getRefValue(cat: string): number {
     const fixedRatio = FIXED_RATIO[cat];
     if (fixedRatio !== undefined && referenceIncome > 0) {
@@ -169,21 +161,17 @@ export default function StandardBudgetPage() {
             <input
               type="number"
               value={incomeInput}
-              onChange={(e) => setIncomeInput(e.target.value)}
+              onChange={(e) => {
+                setIncomeInput(e.target.value);
+                const income = parseInt(e.target.value.replace(/,/g, ""), 10);
+                if (income > 0) setReferenceIncome(income);
+              }}
               placeholder="例: 300000"
               style={{ fontSize: '16px' }}
               className="w-40 bg-slate-800 text-white px-3 py-2 rounded-lg border border-slate-700 focus:border-blue-500 outline-none"
             />
           </div>
-          <button
-            onClick={applyReferenceIncome}
-            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition font-semibold"
-          >
-            過去12ヶ月の比率で参考値を計算
-          </button>
-          {referenceIncome > 0 && (
-            <span className="text-slate-400 text-sm">現在の基準: {formatCurrency(referenceIncome)}</span>
-          )}
+          <span className="text-slate-500 text-xs">入力すると参考値が自動更新されます</span>
         </div>
         {totalAllocation > 0 && (
           <div className="mt-3">
@@ -328,9 +316,9 @@ export default function StandardBudgetPage() {
       <Card className="mt-4">
         <CardTitle>使い方</CardTitle>
         <ul className="text-xs text-slate-400 space-y-1">
-          <li>・基準収入を入力して「過去12ヶ月の比率で参考値を計算」を押すと、各カテゴリに参考値が自動計算されます</li>
-          <li>・「↑」ボタンで設定予算に参考値を一括適用できます</li>
-          <li>・<span className="text-blue-400">固定</span>ラベルのカテゴリ（貯蓄3%・貯蓄（投信）7%）は基準収入に対する固定比率で計算されます</li>
+          <li>・基準収入を入力すると、各カテゴリの参考値が自動計算されます（過去12ヶ月の支出比率を基準に按分）</li>
+          <li>・「↑」ボタンで設定予算に参考値を適用できます</li>
+          <li>・<span className="text-blue-400">固定</span>ラベルのカテゴリ（貯蓄3%・貯蓄（投信）7%）は基準収入に対する固定比率で計算されます。残り90%が他カテゴリに按分されます</li>
           <li>・保存後、予算管理ページで未設定の月を開くと、この標準予算が自動的に適用されます</li>
         </ul>
       </Card>

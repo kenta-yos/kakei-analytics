@@ -21,7 +21,15 @@ type CarryoverItem = {
   carryover: number;
 };
 
-// エクセルと同じカテゴリ表示順（年別固定）
+type TxRow = {
+  id: number;
+  date: string;
+  itemName: string | null;
+  expenseAmount: number;
+  incomeAmount: number;
+  type: string;
+};
+
 const CATEGORY_ORDER_BY_YEAR: Record<string, string[]> = {
   "2019": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "衣服・美容費", "生活費", "医療費", "光熱費", "通信費", "法律", "教育ビジネス", "特別経費M", "特別経費B", "旅行・帰省"],
   "2020": ["研究費", "カフェ", "娯楽費", "交際費", "交通費", "衣服・美容費", "生活費", "医療費", "家賃", "家賃補助", "通信費", "法律", "教育ビジネス", "特別経費M", "特別経費B", "旅行・帰省"],
@@ -32,6 +40,9 @@ const CATEGORY_ORDER_BY_YEAR: Record<string, string[]> = {
   "2025": ["食費", "研究", "カフェ", "娯楽費", "交際費・贅沢費", "交通費", "美容費", "生活消耗品費", "医療費", "家賃・光熱費", "通信費", "特別経費S", "特別経費B", "ファッション", "旅行・帰省", "同棲費", "貯蓄", "貯蓄（投信）", "会社立替"],
   "2026": ["食費", "研究", "カフェ", "娯楽費", "交際費・贅沢費", "交通費", "美容費", "生活消耗品費", "医療費", "家賃・光熱費", "通信費", "特別経費S", "特別経費B", "ファッション", "旅行・帰省", "貯蓄", "貯蓄（投信）", "会社立替"],
 };
+
+// 貯蓄・積立扱いのカテゴリ（支出として発生しない）
+const SAVINGS_CATEGORIES = new Set(["貯蓄", "貯蓄（投信）"]);
 
 function sortByExcelOrder(cats: string[], year: number): string[] {
   const order = CATEGORY_ORDER_BY_YEAR[String(year)] ?? CATEGORY_ORDER_BY_YEAR["2026"];
@@ -51,12 +62,10 @@ function prevYearMonth(y: number, m: number) {
 
 export default function BudgetPage() {
   const now = new Date();
-  // デフォルトは当月
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [isEditing, setIsEditing] = useState(false);
 
-  // 編集中の値 { カテゴリ名 → { allocation, carryover } }
   const [editMap, setEditMap] = useState<
     Record<string, { allocation: number; carryover: number; enabled: boolean }>
   >({});
@@ -70,29 +79,33 @@ export default function BudgetPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // 内訳展開
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [txCache, setTxCache] = useState<Record<string, TxRow[]>>({});
+  const [txLoading, setTxLoading] = useState(false);
+
   const prev = prevYearMonth(year, month);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setExpandedCategory(null);
+    setTxCache({});
     try {
-      // 1. この月の既存予算 + 実績
-      const budgetRes = await fetch(`/api/budgets?year=${year}&month=${month}`);
-      const budgetJson = await budgetRes.json();
+      const [budgetRes, carryoverRes, prevSummaryRes, prevBudgetRes] = await Promise.all([
+        fetch(`/api/budgets?year=${year}&month=${month}`),
+        fetch(`/api/budgets/carryover?year=${year}&month=${month}`),
+        fetch(`/api/summary?year=${prev.year}&month=${prev.month}`),
+        fetch(`/api/budgets?year=${prev.year}&month=${prev.month}`),
+      ]);
+      const [budgetJson, carryoverJson, prevSummaryJson, prevBudgetJson] = await Promise.all([
+        budgetRes.json(), carryoverRes.json(), prevSummaryRes.json(), prevBudgetRes.json(),
+      ]);
+
       const existing: BudgetRow[] = budgetJson.data ?? [];
       setExistingBudgets(existing);
 
-      // 2. 前月の繰越計算
-      const carryoverRes = await fetch(
-        `/api/budgets/carryover?year=${year}&month=${month}`
-      );
-      const carryoverJson = await carryoverRes.json();
       const carryoverItems: CarryoverItem[] = carryoverJson.data ?? [];
 
-      // 3. 前月の収入を取得（内訳含む）
-      const prevSummaryRes = await fetch(
-        `/api/summary?year=${prev.year}&month=${prev.month}`
-      );
-      const prevSummaryJson = await prevSummaryRes.json();
       setPrevMonthIncome(prevSummaryJson.data?.totalIncome ?? 0);
       const cats = prevSummaryJson.data?.categories ?? {};
       const breakdown = Object.entries(cats)
@@ -101,17 +114,11 @@ export default function BudgetPage() {
         .sort((a, b) => b.income - a.income);
       setPrevIncomeBreakdown(breakdown);
 
-      // 4. 前月の実績（参考値）
-      const prevBudgetRes = await fetch(
-        `/api/budgets?year=${prev.year}&month=${prev.month}`
-      );
-      const prevBudgetJson = await prevBudgetRes.json();
       const prevRows: BudgetRow[] = prevBudgetJson.data ?? [];
       const actualsMap: Record<string, number> = {};
       prevRows.forEach((r) => { actualsMap[r.categoryName] = r.actual; });
       setPrevActuals(actualsMap);
 
-      // 5. この月に実際に使われているカテゴリ
       const allCats = sortByExcelOrder(Array.from(
         new Set([
           ...existing.map((r) => r.categoryName),
@@ -121,15 +128,9 @@ export default function BudgetPage() {
       ), year);
       setCategories(allCats);
 
-      // 6. editMap を初期化
-      const carryoverMap = new Map(
-        carryoverItems.map((c) => [c.categoryName, c.carryover])
-      );
-      const existingMap = new Map(
-        existing.filter((r) => r.hasBudget).map((r) => [r.categoryName, r])
-      );
+      const carryoverMap = new Map(carryoverItems.map((c) => [c.categoryName, c.carryover]));
+      const existingMap = new Map(existing.filter((r) => r.hasBudget).map((r) => [r.categoryName, r]));
 
-      // 標準予算を取得（既存予算が1件もない月のみ適用）
       let standardMap = new Map<string, number>();
       const hasBudgetCount = existing.filter((r) => r.hasBudget).length;
       if (hasBudgetCount === 0) {
@@ -138,32 +139,18 @@ export default function BudgetPage() {
           const sbJson = await sbRes.json();
           const standardItems: { categoryName: string; allocation: number }[] = sbJson.data?.items ?? [];
           standardMap = new Map(standardItems.filter((i) => i.allocation > 0).map((i) => [i.categoryName, i.allocation]));
-        } catch {
-          // 取得失敗時は無視
-        }
+        } catch { /* ignore */ }
       }
 
-      const newEditMap: Record<
-        string,
-        { allocation: number; carryover: number; enabled: boolean }
-      > = {};
+      const newEditMap: Record<string, { allocation: number; carryover: number; enabled: boolean }> = {};
       allCats.forEach((cat) => {
         const ex = existingMap.get(cat);
         if (ex) {
-          newEditMap[cat] = {
-            allocation: ex.allocation,
-            // 保存済み値ではなく API から毎回再計算した繰越を使う（前月実績の更新を反映するため）
-            carryover: carryoverMap.get(cat) ?? 0,
-            enabled: true,
-          };
+          newEditMap[cat] = { allocation: ex.allocation, carryover: carryoverMap.get(cat) ?? 0, enabled: true };
         } else {
           const stdAllocation = standardMap.get(cat) ?? 0;
           const carryover = carryoverMap.get(cat) ?? 0;
-          newEditMap[cat] = {
-            allocation: stdAllocation,
-            carryover,
-            enabled: stdAllocation !== 0 || carryover !== 0,
-          };
+          newEditMap[cat] = { allocation: stdAllocation, carryover, enabled: stdAllocation !== 0 || carryover !== 0 };
         }
       });
       setEditMap(newEditMap);
@@ -172,9 +159,7 @@ export default function BudgetPage() {
     }
   }, [year, month, prev.year, prev.month]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   function update(cat: string, key: "allocation" | "carryover" | "enabled", val: number | boolean) {
     setEditMap((prev) => ({
@@ -183,30 +168,15 @@ export default function BudgetPage() {
     }));
   }
 
-  // 前月実績をallocationに一括コピー
-  function fillFromPrevActuals() {
-    setEditMap((prev) => {
-      const next = { ...prev };
-      Object.keys(next).forEach((cat) => {
-        if (prevActuals[cat] !== undefined && prevActuals[cat] > 0) {
-          next[cat] = { ...next[cat], allocation: prevActuals[cat], enabled: true };
-        }
-      });
-      return next;
-    });
-  }
-
   async function saveBudgets() {
     setSaving(true);
     setSaved(false);
     try {
-      const items = Object.entries(editMap)
-        .map(([cat, v]) => ({
-          categoryName: cat,
-          allocation: v.allocation,
-          carryover: v.carryover,
-        }));
-
+      const items = Object.entries(editMap).map(([cat, v]) => ({
+        categoryName: cat,
+        allocation: v.allocation,
+        carryover: v.carryover,
+      }));
       await fetch("/api/budgets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -219,15 +189,44 @@ export default function BudgetPage() {
     }
   }
 
+  async function toggleExpand(cat: string) {
+    if (expandedCategory === cat) {
+      setExpandedCategory(null);
+      return;
+    }
+    setExpandedCategory(cat);
+    if (txCache[cat]) return;
+    setTxLoading(true);
+    try {
+      const res = await fetch(
+        `/api/transactions?year=${year}&month=${month}&category=${encodeURIComponent(cat)}&type=支出&limit=20`
+      );
+      const json = await res.json();
+      setTxCache((prev) => ({ ...prev, [cat]: json.data ?? [] }));
+    } finally {
+      setTxLoading(false);
+    }
+  }
+
   // 集計
   const enabledItems = Object.entries(editMap).filter(([, v]) => v.enabled);
   const totalAllocation = enabledItems.reduce((sum, [, v]) => sum + (v.allocation ?? 0), 0);
   const totalCarryover = enabledItems.reduce((sum, [, v]) => sum + (v.carryover ?? 0), 0);
   const totalBudget = totalAllocation + totalCarryover;
   const unallocated = prevMonthIncome - totalAllocation;
-  const totalActual = existingBudgets.reduce((sum, r) => sum + r.actual, 0);
-
   const actualMap = new Map(existingBudgets.map((r) => [r.categoryName, r.actual]));
+
+  const expenseCats = categories.filter((c) => !SAVINGS_CATEGORIES.has(c));
+  const savingsCats = categories.filter((c) => SAVINGS_CATEGORIES.has(c));
+
+  const expenseTotal = {
+    budget: expenseCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0) + (editMap[c]?.carryover ?? 0), 0),
+    actual: expenseCats.reduce((s, c) => s + (actualMap.get(c) ?? 0), 0),
+  };
+  const savingsTotal = {
+    budget: savingsCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0) + (editMap[c]?.carryover ?? 0), 0),
+    actual: savingsCats.reduce((s, c) => s + (actualMap.get(c) ?? 0), 0),
+  };
 
   return (
     <div className="p-4 sm:p-6">
@@ -236,7 +235,7 @@ export default function BudgetPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-white">予算管理</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            {prev.year}年{prev.month}月の収入を {year}年{month}月の各予算に配分する
+            {year}年{month}月の予算と実績
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -258,315 +257,426 @@ export default function BudgetPage() {
               <option key={m} value={m}>{m}月</option>
             ))}
           </select>
-        </div>
-      </div>
-
-      {/* 前月収入 + 配分パネル */}
-      <Card className="mb-4 border-green-800/40 bg-green-950/10">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          {/* 左: 前月収入 */}
-          <div>
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-slate-400 text-sm">{prev.year}年{prev.month}月の収入</span>
-              {prevIncomeBreakdown.length > 0 && (
-                <button
-                  onClick={() => setShowIncomeBreakdown(!showIncomeBreakdown)}
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition"
-                >
-                  内訳 {showIncomeBreakdown ? "▲" : "▼"}
-                </button>
-              )}
-            </div>
-            <p className="text-3xl sm:text-4xl font-bold text-green-400">{formatCurrency(prevMonthIncome)}</p>
-          </div>
-
-          {/* 右: 未配分残り */}
-          <div className="text-right">
-            <p className="text-slate-400 text-sm mb-1">未配分残り</p>
-            {unallocated === 0 ? (
-              <p className="text-2xl sm:text-3xl font-bold text-green-400">配分完了</p>
-            ) : (
-              <p className={`text-2xl sm:text-3xl font-bold ${unallocated < 0 ? "text-red-400" : "text-yellow-300"}`}>
-                {formatCurrencySigned(unallocated)}
-              </p>
-            )}
-            <p className="text-xs text-slate-500 mt-1">配分済み {formatCurrency(totalAllocation)}</p>
-          </div>
-        </div>
-
-        {/* 配分進捗バー */}
-        <div className="mt-4">
-          <div className="flex justify-between text-xs text-slate-500 mb-1.5">
-            <span>0</span>
-            <span>{prevMonthIncome > 0 ? Math.min(Math.round((totalAllocation / prevMonthIncome) * 100), 100) : 0}% 配分済み</span>
-            <span>{formatCurrency(prevMonthIncome)}</span>
-          </div>
-          <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${
-                unallocated < 0 ? "bg-red-500" : unallocated === 0 ? "bg-green-500" : "bg-blue-500"
-              }`}
-              style={{ width: `${prevMonthIncome > 0 ? Math.min((totalAllocation / prevMonthIncome) * 100, 100) : 0}%` }}
-            />
-          </div>
-        </div>
-
-        {/* 収入内訳（展開時） */}
-        {showIncomeBreakdown && prevIncomeBreakdown.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-slate-700/60">
-            <p className="text-xs text-slate-500 mb-2">収入内訳</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1">
-              {prevIncomeBreakdown.map(({ category, income }) => (
-                <div key={category} className="flex justify-between text-sm py-0.5">
-                  <span className="text-slate-400">{category}</span>
-                  <span className="text-green-400 font-medium">{formatCurrency(income)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
-
-      {/* サブ指標 */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <Card>
-          <CardTitle>前月繰越合計</CardTitle>
-          <p className={`text-lg font-bold ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {formatCurrencySigned(totalCarryover)}
-          </p>
-        </Card>
-        <Card>
-          <CardTitle>合計予算</CardTitle>
-          <p className="text-lg font-bold text-white">{formatCurrency(totalBudget)}</p>
-        </Card>
-        <Card>
-          <CardTitle>当月実績合計</CardTitle>
-          <p className="text-lg font-bold text-slate-300">{formatCurrency(totalActual)}</p>
-        </Card>
-      </div>
-
-      {/* メインテーブル */}
-      <Card>
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <CardTitle>{year}年{month}月 カテゴリ別予算</CardTitle>
           {!isEditing ? (
             <button
               onClick={() => setIsEditing(true)}
-              className="px-4 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
+              className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
             >
               編集
             </button>
           ) : (
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2">
               <button
                 onClick={() => { loadData(); setIsEditing(false); }}
-                className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
+                className="px-3 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
               >
                 キャンセル
               </button>
               <button
                 onClick={async () => { await saveBudgets(); setIsEditing(false); }}
                 disabled={saving}
-                className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-semibold"
+                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-semibold"
               >
                 {saving ? "保存中..." : "保存"}
               </button>
             </div>
           )}
         </div>
+      </div>
 
-        {saved && <p className="text-green-400 text-xs mb-3">保存しました</p>}
+      {saved && <p className="text-green-400 text-xs mb-3">保存しました</p>}
 
-        {loading ? (
-          <p className="text-slate-500 text-sm py-8 text-center">読み込み中...</p>
-        ) : categories.length === 0 ? (
-          <p className="text-slate-500 text-sm py-8 text-center">
-            CSVをインポートするとカテゴリが自動で表示されます
-          </p>
-        ) : !isEditing ? (
-          /* ---- 閲覧モード ---- */
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th className="text-left">カテゴリ</th>
-                  <th className="text-right">合計予算</th>
-                  <th className="text-right">当月実績</th>
-                  <th className="text-right">残り</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categories.map((cat) => {
-                  const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
-                  const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
-                  const actual = actualMap.get(cat) ?? 0;
-                  const remaining = totalB - actual;
-                  const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
-                  const over = totalB > 0 && actual > totalB;
-                  return (
-                    <tr key={cat}>
-                      <td className="font-medium text-slate-200">{cat}</td>
-                      <td className="text-right text-white">{totalB !== 0 ? formatCurrency(totalB) : "—"}</td>
-                      <td className="text-right text-slate-300">{actual > 0 ? formatCurrency(actual) : "—"}</td>
-                      <td className={`text-right font-medium ${remaining < 0 ? "text-red-400" : totalB !== 0 ? "text-green-400" : "text-slate-600"}`}>
-                        {totalB !== 0 || actual > 0 ? formatCurrencySigned(remaining) : "—"}
-                        {totalB > 0 && (
-                          <div className="h-1 bg-slate-700 rounded-full overflow-hidden mt-1 w-full min-w-[60px]">
-                            <div
-                              className={`h-full rounded-full ${over ? "bg-red-500" : pct > 80 ? "bg-yellow-500" : "bg-blue-500"}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+      {loading ? (
+        <div className="flex items-center justify-center h-48 text-slate-500">読み込み中...</div>
+      ) : categories.length === 0 ? (
+        <p className="text-slate-500 text-sm py-8 text-center">CSVをインポートするとカテゴリが自動で表示されます</p>
+      ) : !isEditing ? (
+        /* ────────────────────────────────
+           閲覧モード
+        ──────────────────────────────── */
+        <div className="space-y-2">
+          {/* 支出カテゴリ */}
+          <Card className="p-0 overflow-hidden">
+            {/* セクションヘッダー */}
+            <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">支出</span>
+              <div className="flex gap-3 text-xs text-slate-500">
+                <span>予算 {formatCurrency(expenseTotal.budget)}</span>
+                <span>実績 {formatCurrency(expenseTotal.actual)}</span>
+                <span className={expenseTotal.budget - expenseTotal.actual < 0 ? "text-red-400 font-medium" : "text-green-400 font-medium"}>
+                  残 {formatCurrencySigned(expenseTotal.budget - expenseTotal.actual)}
+                </span>
+              </div>
+            </div>
 
-                {/* 合計行 */}
-                <tr className="border-t-2 border-slate-600 font-semibold">
-                  <td className="text-slate-300 pt-3">合計</td>
-                  <td className="text-right pt-3 text-white">{formatCurrency(totalBudget)}</td>
-                  <td className="text-right pt-3 text-slate-300">{formatCurrency(totalActual)}</td>
-                  <td className={`text-right pt-3 font-medium ${totalBudget - totalActual < 0 ? "text-red-400" : "text-green-400"}`}>
-                    {totalBudget !== 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          /* ---- 編集モード ---- */
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th className="text-left">カテゴリ</th>
-                  {/* 前月繰越: モバイルでも表示 */}
-                  <th className="text-right border-l-2 border-l-blue-800/50 text-blue-300/80">
-                    前月繰越<span className="text-slate-600 text-xs ml-1">(自動)</span>
-                  </th>
-                  <th className="text-right text-blue-300/80">今月割り当て</th>
-                  <th className="text-right text-blue-300/80">合計予算</th>
-                  {/* 前月実績 */}
-                  <th className="text-right hidden sm:table-cell border-l-2 border-l-slate-600/40">前月実績<span className="text-slate-600 text-xs">（参考）</span></th>
-                  <th className="text-right">当月実績</th>
-                  {/* 残高 */}
-                  <th className="text-right border-l-2 border-l-emerald-700/50 text-emerald-300/80">残り</th>
-                  <th className="w-28 hidden md:table-cell text-emerald-300/80">進捗</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categories.map((cat) => {
-                  const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
-                  const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
-                  const actual = actualMap.get(cat) ?? 0;
-                  const remaining = totalB - actual;
-                  const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
-                  const over = totalB > 0 && actual > totalB;
-                  const prevActual = prevActuals[cat] ?? 0;
+            <div className="divide-y divide-slate-800/60">
+              {expenseCats.map((cat) => {
+                const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
+                const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
+                const actual = actualMap.get(cat) ?? 0;
+                const remaining = totalB - actual;
+                const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
+                const over = totalB > 0 && actual > totalB;
+                const isExpanded = expandedCategory === cat;
+                const txList = txCache[cat];
 
-                  return (
-                    <tr key={cat}>
-                      <td className="font-medium text-slate-200">{cat}</td>
-
-                      {/* 前月繰越（読み取り専用）- 常時表示 */}
-                      <td className={`text-right border-l-2 border-l-blue-800/30 font-medium ${
-                        (edit.carryover ?? 0) >= 0 ? "text-green-400" : "text-red-400"
-                      }`}>
-                        {formatCurrencySigned(edit.carryover)}
-                      </td>
-
-                      {/* 今月割り当て */}
-                      <td className="text-right">
-                        <input
-                          type="number"
-                          value={edit.allocation}
-                          onChange={(e) => update(cat, "allocation", Number(e.target.value))}
-                          onFocus={(e) => e.target.select()}
-                          style={{ fontSize: '16px' }}
-                          className="w-20 sm:w-24 bg-slate-800 text-white text-right px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none"
-                        />
-                      </td>
-
-                      {/* 合計予算 */}
-                      <td className="text-right text-white font-medium">
-                        {formatCurrency(totalB)}
-                      </td>
-
-                      {/* 前月実績（参考） */}
-                      <td className="text-right text-slate-500 text-xs hidden sm:table-cell border-l-2 border-l-slate-600/30">
-                        {prevActual > 0 ? formatCurrency(prevActual) : "—"}
-                      </td>
-
-                      {/* 当月実績 */}
-                      <td className="text-right text-slate-300">
-                        {actual > 0 ? formatCurrency(actual) : "—"}
-                      </td>
-
-                      {/* 残り */}
-                      <td className={`text-right font-medium border-l-2 border-l-emerald-800/30 ${
-                        remaining < 0 ? "text-red-400" : totalB !== 0 ? "text-green-400" : "text-slate-600"
-                      }`}>
-                        {totalB !== 0 || actual > 0 ? formatCurrencySigned(remaining) : "—"}
-                      </td>
+                return (
+                  <div key={cat}>
+                    {/* カテゴリ行 */}
+                    <div className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className="font-medium text-slate-200 text-sm leading-tight">{cat}</span>
+                        <span className={`text-sm font-bold tabular-nums shrink-0 ${
+                          !totalB && !actual ? "text-slate-600"
+                          : remaining < 0 ? "text-red-400"
+                          : remaining === 0 ? "text-slate-400"
+                          : "text-green-400"
+                        }`}>
+                          {totalB || actual ? formatCurrencySigned(remaining) : "—"}
+                        </span>
+                      </div>
 
                       {/* 進捗バー */}
-                      <td className="hidden md:table-cell">
-                        {totalB > 0 && (
-                          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${
-                                over ? "bg-red-500" : pct > 80 ? "bg-yellow-500" : "bg-blue-500"
-                              }`}
-                              style={{ width: `${pct}%` }}
-                            />
+                      {totalB > 0 && (
+                        <div className="h-1.5 bg-slate-700/80 rounded-full overflow-hidden mb-2">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              over ? "bg-red-500" : pct > 80 ? "bg-amber-500" : "bg-blue-500"
+                            }`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      )}
+
+                      {/* 予算 / 実績 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-500 tabular-nums">
+                          予算 {totalB > 0 ? formatCurrency(totalB) : "—"}
+                          {(edit.carryover ?? 0) !== 0 && (
+                            <span className={`ml-1 ${edit.carryover > 0 ? "text-blue-400" : "text-red-400"}`}>
+                              ({formatCurrencySigned(edit.carryover)})
+                            </span>
+                          )}
+                        </span>
+                        <button
+                          onClick={() => toggleExpand(cat)}
+                          className={`text-xs tabular-nums flex items-center gap-1 transition ${
+                            actual > 0
+                              ? "text-slate-300 hover:text-white"
+                              : "text-slate-600 cursor-default"
+                          }`}
+                          disabled={actual === 0}
+                        >
+                          実績 {actual > 0 ? formatCurrency(actual) : "—"}
+                          {actual > 0 && (
+                            <span className="text-slate-500">{isExpanded ? "▲" : "▼"}</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 取引内訳（展開時） */}
+                    {isExpanded && (
+                      <div className="bg-slate-900/60 border-t border-slate-700/40 px-4 py-2">
+                        {txLoading && !txList ? (
+                          <p className="text-xs text-slate-500 py-2 text-center">読み込み中...</p>
+                        ) : txList && txList.length > 0 ? (
+                          <div className="space-y-1">
+                            {txList.map((tx) => (
+                              <div key={tx.id} className="flex items-center justify-between py-0.5">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-slate-500 text-xs shrink-0 tabular-nums">{tx.date.slice(5)}</span>
+                                  <span className="text-slate-400 text-xs truncate">
+                                    {tx.itemName || "(項目名なし)"}
+                                  </span>
+                                </div>
+                                <span className="text-slate-300 text-xs font-medium tabular-nums shrink-0 ml-2">
+                                  {formatCurrency(tx.expenseAmount)}
+                                </span>
+                              </div>
+                            ))}
                           </div>
+                        ) : (
+                          <p className="text-xs text-slate-600 py-1">取引明細なし</p>
                         )}
-                      </td>
-                    </tr>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* 貯蓄・積立セクション */}
+          {savingsCats.length > 0 && (
+            <Card className="p-0 overflow-hidden">
+              <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">貯蓄・積立</span>
+                <div className="flex gap-3 text-xs text-slate-500">
+                  <span>目標 {formatCurrency(savingsTotal.budget)}</span>
+                  <span>積立済 {formatCurrency(savingsTotal.actual)}</span>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-800/60">
+                {savingsCats.map((cat) => {
+                  const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
+                  const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
+                  const actual = actualMap.get(cat) ?? 0;
+                  const achieved = totalB > 0 && actual >= totalB;
+                  const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
+                  return (
+                    <div key={cat} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="font-medium text-slate-200 text-sm">{cat}</span>
+                        {achieved ? (
+                          <span className="text-xs text-green-400 font-semibold">達成 ✓</span>
+                        ) : (
+                          <span className="text-xs text-slate-500 tabular-nums">
+                            {actual > 0 ? formatCurrency(actual) : "—"} / {totalB > 0 ? formatCurrency(totalB) : "—"}
+                          </span>
+                        )}
+                      </div>
+                      {totalB > 0 && (
+                        <div className="h-1.5 bg-slate-700/80 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${achieved ? "bg-green-500" : "bg-purple-500"}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
+              </div>
+            </Card>
+          )}
 
-                {/* 合計行 */}
-                <tr className="border-t-2 border-slate-600 font-semibold">
-                  <td className="text-slate-300 pt-3">合計</td>
-                  <td className={`text-right pt-3 border-l-2 border-l-blue-800/30 ${totalCarryover >= 0 ? "text-green-400" : "text-red-400"}`}>
-                    {formatCurrencySigned(totalCarryover)}
-                  </td>
-                  <td className="text-right pt-3 text-blue-400">{formatCurrency(totalAllocation)}</td>
-                  <td className="text-right pt-3 text-white">{formatCurrency(totalBudget)}</td>
-                  <td className="text-right pt-3 text-slate-500 text-xs hidden sm:table-cell border-l-2 border-l-slate-600/30">
-                    {Object.values(prevActuals).reduce((s, v) => s + v, 0) > 0
-                      ? formatCurrency(Object.values(prevActuals).reduce((s, v) => s + v, 0))
-                      : "—"}
-                  </td>
-                  <td className="text-right pt-3 text-slate-300">{formatCurrency(totalActual)}</td>
-                  <td className={`text-right pt-3 font-medium border-l-2 border-l-emerald-800/30 ${
-                    totalBudget - totalActual < 0 ? "text-red-400" : "text-green-400"
-                  }`}>
-                    {totalBudget !== 0 ? formatCurrencySigned(totalBudget - totalActual) : "—"}
-                  </td>
-                  <td className="hidden md:table-cell" />
-                </tr>
-              </tbody>
-            </table>
+          {/* 合計サマリー */}
+          <div className="grid grid-cols-3 gap-2 mt-1">
+            <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-center">
+              <p className="text-slate-500 text-xs mb-1">合計予算</p>
+              <p className="text-white font-bold text-sm tabular-nums">{formatCurrency(totalBudget)}</p>
+            </div>
+            <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-center">
+              <p className="text-slate-500 text-xs mb-1">合計実績</p>
+              <p className="text-slate-300 font-bold text-sm tabular-nums">
+                {formatCurrency(expenseTotal.actual + savingsTotal.actual)}
+              </p>
+            </div>
+            <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-center">
+              <p className="text-slate-500 text-xs mb-1">支出残り</p>
+              <p className={`font-bold text-sm tabular-nums ${
+                expenseTotal.budget - expenseTotal.actual < 0 ? "text-red-400" : "text-green-400"
+              }`}>
+                {formatCurrencySigned(expenseTotal.budget - expenseTotal.actual)}
+              </p>
+            </div>
           </div>
-        )}
-      </Card>
+        </div>
+      ) : (
+        /* ────────────────────────────────
+           編集モード
+        ──────────────────────────────── */
+        <div className="space-y-4">
+          {/* 収入 + 未配分バー（編集時のみ表示） */}
+          <Card className="border-green-800/40 bg-green-950/10">
+            <div className="flex items-start justify-between flex-wrap gap-4">
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <span className="text-slate-400 text-sm">{prev.year}年{prev.month}月の収入</span>
+                  {prevIncomeBreakdown.length > 0 && (
+                    <button
+                      onClick={() => setShowIncomeBreakdown(!showIncomeBreakdown)}
+                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition"
+                    >
+                      内訳 {showIncomeBreakdown ? "▲" : "▼"}
+                    </button>
+                  )}
+                </div>
+                <p className="text-3xl font-bold text-green-400 tabular-nums">{formatCurrency(prevMonthIncome)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-slate-400 text-sm mb-1">未配分残り</p>
+                {unallocated === 0 ? (
+                  <p className="text-2xl font-bold text-green-400">配分完了</p>
+                ) : (
+                  <p className={`text-2xl font-bold tabular-nums ${unallocated < 0 ? "text-red-400" : "text-yellow-300"}`}>
+                    {formatCurrencySigned(unallocated)}
+                  </p>
+                )}
+                <p className="text-xs text-slate-500 mt-1 tabular-nums">配分済み {formatCurrency(totalAllocation)}</p>
+              </div>
+            </div>
 
-      {/* 凡例 */}
-      {isEditing && (
-        <Card className="mt-4">
-          <CardTitle>操作ガイド</CardTitle>
-          <ul className="text-xs text-slate-400 space-y-1">
-            <li>・<span className="text-green-400">前月収入</span>を見ながら各カテゴリに予算を割り振る。未配分残りが 0 になるまで入力する</li>
-            <li>・<span className="text-blue-300/80">予算列</span>（前月繰越・今月割り当て・合計予算）: 前月繰越は自動入力。今月割り当てを入力すると未配分残りにリアルタイム反映</li>
-            <li>・実績列（前月実績・当月実績）: 参考値。編集不可</li>
-            <li>・<span className="text-emerald-300/80">残高列</span>（残り・進捗）: 合計予算 − 当月実績を自動計算</li>
-            <li>・予算が未設定の月は標準予算が自動的に適用されます。標準予算は<a href="/standard-budget" className="text-blue-400 hover:underline">標準予算設定</a>ページで変更できます</li>
-          </ul>
-        </Card>
+            <div className="mt-3">
+              <div className="h-2.5 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    unallocated < 0 ? "bg-red-500" : unallocated === 0 ? "bg-green-500" : "bg-blue-500"
+                  }`}
+                  style={{ width: `${prevMonthIncome > 0 ? Math.min((totalAllocation / prevMonthIncome) * 100, 100) : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {showIncomeBreakdown && prevIncomeBreakdown.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-700/60">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1">
+                  {prevIncomeBreakdown.map(({ category, income }) => (
+                    <div key={category} className="flex justify-between text-sm py-0.5">
+                      <span className="text-slate-400">{category}</span>
+                      <span className="text-green-400 font-medium tabular-nums">{formatCurrency(income)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* 編集テーブル */}
+          <Card className="p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700 bg-slate-800/60">
+                    <th className="text-left px-3 py-2.5 text-slate-400 font-medium min-w-[7rem]">カテゴリ</th>
+                    <th className="text-right px-3 py-2.5 text-blue-300/80 font-medium whitespace-nowrap">繰越</th>
+                    <th className="text-right px-3 py-2.5 text-blue-300/80 font-medium whitespace-nowrap">今月割当</th>
+                    <th className="text-right px-3 py-2.5 text-white font-medium whitespace-nowrap">合計予算</th>
+                    <th className="text-right px-3 py-2.5 text-slate-500 font-medium whitespace-nowrap hidden sm:table-cell">前月実績</th>
+                    <th className="text-right px-3 py-2.5 text-slate-400 font-medium whitespace-nowrap">当月実績</th>
+                    <th className="text-right px-3 py-2.5 text-emerald-300/80 font-medium whitespace-nowrap">残り</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {/* 支出カテゴリ */}
+                  {expenseCats.map((cat) => {
+                    const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
+                    const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
+                    const actual = actualMap.get(cat) ?? 0;
+                    const remaining = totalB - actual;
+                    const prevActual = prevActuals[cat] ?? 0;
+
+                    return (
+                      <tr key={cat} className="hover:bg-slate-800/30">
+                        <td className="px-3 py-2 font-medium text-slate-200">{cat}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-medium text-sm ${
+                          (edit.carryover ?? 0) >= 0 ? "text-blue-400" : "text-red-400"
+                        }`}>
+                          {(edit.carryover ?? 0) !== 0 ? formatCurrencySigned(edit.carryover) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            value={edit.allocation}
+                            onChange={(e) => update(cat, "allocation", Number(e.target.value))}
+                            onFocus={(e) => e.target.select()}
+                            style={{ fontSize: "16px" }}
+                            className="w-24 bg-slate-800 text-white text-right px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none tabular-nums"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right text-white font-medium tabular-nums whitespace-nowrap">
+                          {formatCurrency(totalB)}
+                        </td>
+                        <td className="px-3 py-2 text-right text-slate-500 text-xs tabular-nums whitespace-nowrap hidden sm:table-cell">
+                          {prevActual > 0 ? formatCurrency(prevActual) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right text-slate-300 tabular-nums whitespace-nowrap">
+                          {actual > 0 ? formatCurrency(actual) : "—"}
+                        </td>
+                        <td className={`px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap ${
+                          remaining < 0 ? "text-red-400" : totalB !== 0 ? "text-green-400" : "text-slate-600"
+                        }`}>
+                          {totalB !== 0 || actual > 0 ? formatCurrencySigned(remaining) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {/* 貯蓄カテゴリ（区切り） */}
+                  {savingsCats.length > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={7} className="px-3 py-1.5 bg-slate-800/40">
+                          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">貯蓄・積立</span>
+                        </td>
+                      </tr>
+                      {savingsCats.map((cat) => {
+                        const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
+                        const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
+                        const actual = actualMap.get(cat) ?? 0;
+                        const remaining = totalB - actual;
+                        const prevActual = prevActuals[cat] ?? 0;
+
+                        return (
+                          <tr key={cat} className="hover:bg-slate-800/30 bg-purple-950/5">
+                            <td className="px-3 py-2 font-medium text-slate-200">{cat}</td>
+                            <td className={`px-3 py-2 text-right tabular-nums font-medium text-sm ${
+                              (edit.carryover ?? 0) >= 0 ? "text-blue-400" : "text-red-400"
+                            }`}>
+                              {(edit.carryover ?? 0) !== 0 ? formatCurrencySigned(edit.carryover) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <input
+                                type="number"
+                                value={edit.allocation}
+                                onChange={(e) => update(cat, "allocation", Number(e.target.value))}
+                                onFocus={(e) => e.target.select()}
+                                style={{ fontSize: "16px" }}
+                                className="w-24 bg-slate-800 text-white text-right px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none tabular-nums"
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right text-white font-medium tabular-nums whitespace-nowrap">
+                              {formatCurrency(totalB)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-slate-500 text-xs tabular-nums whitespace-nowrap hidden sm:table-cell">
+                              {prevActual > 0 ? formatCurrency(prevActual) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right text-slate-300 tabular-nums whitespace-nowrap">
+                              {actual > 0 ? formatCurrency(actual) : "—"}
+                            </td>
+                            <td className={`px-3 py-2 text-right font-medium tabular-nums whitespace-nowrap ${
+                              remaining < 0 ? "text-red-400" : totalB !== 0 ? "text-purple-400" : "text-slate-600"
+                            }`}>
+                              {totalB !== 0 || actual > 0 ? formatCurrencySigned(remaining) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {/* 合計行 */}
+                  <tr className="border-t-2 border-slate-600 font-semibold bg-slate-800/30">
+                    <td className="px-3 pt-3 pb-2 text-slate-300">合計</td>
+                    <td className={`px-3 pt-3 pb-2 text-right tabular-nums ${totalCarryover >= 0 ? "text-blue-400" : "text-red-400"}`}>
+                      {formatCurrencySigned(totalCarryover)}
+                    </td>
+                    <td className="px-3 pt-3 pb-2 text-right text-blue-400 tabular-nums">
+                      {formatCurrency(totalAllocation)}
+                    </td>
+                    <td className="px-3 pt-3 pb-2 text-right text-white tabular-nums">
+                      {formatCurrency(totalBudget)}
+                    </td>
+                    <td className="px-3 pt-3 pb-2 text-right text-slate-500 text-xs tabular-nums hidden sm:table-cell">
+                      {Object.values(prevActuals).reduce((s, v) => s + v, 0) > 0
+                        ? formatCurrency(Object.values(prevActuals).reduce((s, v) => s + v, 0))
+                        : "—"}
+                    </td>
+                    <td className="px-3 pt-3 pb-2 text-right text-slate-300 tabular-nums">
+                      {formatCurrency(expenseTotal.actual + savingsTotal.actual)}
+                    </td>
+                    <td className={`px-3 pt-3 pb-2 text-right tabular-nums ${
+                      totalBudget - (expenseTotal.actual + savingsTotal.actual) < 0 ? "text-red-400" : "text-green-400"
+                    }`}>
+                      {totalBudget !== 0 ? formatCurrencySigned(totalBudget - (expenseTotal.actual + savingsTotal.actual)) : "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );
