@@ -297,16 +297,11 @@ export default function BudgetPage() {
         <div className="space-y-2">
           {/* 支出カテゴリ */}
           <Card className="p-0 overflow-hidden">
-            {/* セクションヘッダー */}
             <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">支出</span>
-              <div className="flex gap-3 text-xs text-slate-500">
-                <span>予算 {formatCurrency(expenseTotal.budget)}</span>
-                <span>実績 {formatCurrency(expenseTotal.actual)}</span>
-                <span className={expenseTotal.budget - expenseTotal.actual < 0 ? "text-red-400 font-medium" : "text-green-400 font-medium"}>
-                  残 {formatCurrencySigned(expenseTotal.budget - expenseTotal.actual)}
-                </span>
-              </div>
+              <span className={`text-xs font-semibold tabular-nums ${expenseTotal.budget - expenseTotal.actual < 0 ? "text-red-400" : "text-green-400"}`}>
+                残 {formatCurrencySigned(expenseTotal.budget - expenseTotal.actual)}
+              </span>
             </div>
 
             <div className="divide-y divide-slate-800/60">
@@ -319,26 +314,55 @@ export default function BudgetPage() {
                 const over = totalB > 0 && actual > totalB;
                 const isExpanded = expandedCategory === cat;
                 const txList = txCache[cat];
+                const hasData = totalB > 0 || actual > 0;
 
                 return (
                   <div key={cat}>
-                    {/* カテゴリ行 */}
                     <div className="px-4 py-3">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <span className="font-medium text-slate-200 text-sm leading-tight">{cat}</span>
-                        <span className={`text-sm font-bold tabular-nums shrink-0 ${
-                          !totalB && !actual ? "text-slate-600"
-                          : remaining < 0 ? "text-red-400"
-                          : remaining === 0 ? "text-slate-400"
-                          : "text-green-400"
-                        }`}>
-                          {totalB || actual ? formatCurrencySigned(remaining) : "—"}
-                        </span>
+                      <p className="font-medium text-slate-200 text-sm mb-2 leading-tight">{cat}</p>
+
+                      {/* 予算 / 実績 / 残り — 3列 */}
+                      <div className="grid grid-cols-3 gap-1 mb-2">
+                        <div>
+                          <p className="text-xs text-slate-500 mb-0.5">予算</p>
+                          <p className="text-sm font-medium text-slate-300 tabular-nums">
+                            {totalB > 0 ? formatCurrency(totalB) : "—"}
+                          </p>
+                          {(edit.carryover ?? 0) !== 0 && (
+                            <p className={`text-xs tabular-nums ${edit.carryover > 0 ? "text-blue-400" : "text-red-400"}`}>
+                              繰越 {formatCurrencySigned(edit.carryover)}
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-0.5">実績</p>
+                          <button
+                            onClick={() => toggleExpand(cat)}
+                            disabled={actual === 0}
+                            className={`text-sm font-medium tabular-nums flex items-center gap-0.5 transition ${
+                              actual > 0 ? "text-slate-300 hover:text-white" : "text-slate-600 cursor-default"
+                            }`}
+                          >
+                            {actual > 0 ? formatCurrency(actual) : "—"}
+                            {actual > 0 && <span className="text-slate-500 text-xs">{isExpanded ? "▲" : "▼"}</span>}
+                          </button>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-0.5">残り</p>
+                          <p className={`text-sm font-bold tabular-nums ${
+                            !hasData ? "text-slate-600"
+                            : remaining < 0 ? "text-red-400"
+                            : remaining === 0 ? "text-slate-400"
+                            : "text-green-400"
+                          }`}>
+                            {hasData ? formatCurrencySigned(remaining) : "—"}
+                          </p>
+                        </div>
                       </div>
 
                       {/* 進捗バー */}
                       {totalB > 0 && (
-                        <div className="h-1.5 bg-slate-700/80 rounded-full overflow-hidden mb-2">
+                        <div className="h-1.5 bg-slate-700/80 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all ${
                               over ? "bg-red-500" : pct > 80 ? "bg-amber-500" : "bg-blue-500"
@@ -347,32 +371,6 @@ export default function BudgetPage() {
                           />
                         </div>
                       )}
-
-                      {/* 予算 / 実績 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-500 tabular-nums">
-                          予算 {totalB > 0 ? formatCurrency(totalB) : "—"}
-                          {(edit.carryover ?? 0) !== 0 && (
-                            <span className={`ml-1 ${edit.carryover > 0 ? "text-blue-400" : "text-red-400"}`}>
-                              ({formatCurrencySigned(edit.carryover)})
-                            </span>
-                          )}
-                        </span>
-                        <button
-                          onClick={() => toggleExpand(cat)}
-                          className={`text-xs tabular-nums flex items-center gap-1 transition ${
-                            actual > 0
-                              ? "text-slate-300 hover:text-white"
-                              : "text-slate-600 cursor-default"
-                          }`}
-                          disabled={actual === 0}
-                        >
-                          実績 {actual > 0 ? formatCurrency(actual) : "—"}
-                          {actual > 0 && (
-                            <span className="text-slate-500">{isExpanded ? "▲" : "▼"}</span>
-                          )}
-                        </button>
-                      </div>
                     </div>
 
                     {/* 取引内訳（展開時） */}
@@ -407,43 +405,24 @@ export default function BudgetPage() {
             </div>
           </Card>
 
-          {/* 貯蓄・積立セクション */}
+          {/* 貯蓄・積立セクション（配分額の確認のみ） */}
           {savingsCats.length > 0 && (
             <Card className="p-0 overflow-hidden">
               <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60 flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">貯蓄・積立</span>
-                <div className="flex gap-3 text-xs text-slate-500">
-                  <span>目標 {formatCurrency(savingsTotal.budget)}</span>
-                  <span>積立済 {formatCurrency(savingsTotal.actual)}</span>
-                </div>
+                <span className="text-xs text-slate-500 tabular-nums">
+                  今月配分 {formatCurrency(savingsCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0), 0))}
+                </span>
               </div>
               <div className="divide-y divide-slate-800/60">
                 {savingsCats.map((cat) => {
-                  const edit = editMap[cat] ?? { allocation: 0, carryover: 0, enabled: false };
-                  const totalB = (edit.allocation ?? 0) + (edit.carryover ?? 0);
-                  const actual = actualMap.get(cat) ?? 0;
-                  const achieved = totalB > 0 && actual >= totalB;
-                  const pct = totalB > 0 ? Math.min((actual / totalB) * 100, 100) : 0;
+                  const allocation = editMap[cat]?.allocation ?? 0;
                   return (
-                    <div key={cat} className="px-4 py-3">
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <span className="font-medium text-slate-200 text-sm">{cat}</span>
-                        {achieved ? (
-                          <span className="text-xs text-green-400 font-semibold">達成 ✓</span>
-                        ) : (
-                          <span className="text-xs text-slate-500 tabular-nums">
-                            {actual > 0 ? formatCurrency(actual) : "—"} / {totalB > 0 ? formatCurrency(totalB) : "—"}
-                          </span>
-                        )}
-                      </div>
-                      {totalB > 0 && (
-                        <div className="h-1.5 bg-slate-700/80 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${achieved ? "bg-green-500" : "bg-purple-500"}`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      )}
+                    <div key={cat} className="px-4 py-3 flex items-center justify-between">
+                      <span className="font-medium text-slate-200 text-sm">{cat}</span>
+                      <span className="text-purple-300 font-medium tabular-nums text-sm">
+                        {allocation > 0 ? formatCurrency(allocation) : "—"}
+                      </span>
                     </div>
                   );
                 })}
@@ -451,20 +430,18 @@ export default function BudgetPage() {
             </Card>
           )}
 
-          {/* 合計サマリー */}
+          {/* 合計サマリー（貯蓄を除く支出のみ） */}
           <div className="grid grid-cols-3 gap-2 mt-1">
             <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-center">
-              <p className="text-slate-500 text-xs mb-1">合計予算</p>
-              <p className="text-white font-bold text-sm tabular-nums">{formatCurrency(totalBudget)}</p>
+              <p className="text-slate-500 text-xs mb-1">支出予算</p>
+              <p className="text-white font-bold text-sm tabular-nums">{formatCurrency(expenseTotal.budget)}</p>
             </div>
             <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-center">
-              <p className="text-slate-500 text-xs mb-1">合計実績</p>
-              <p className="text-slate-300 font-bold text-sm tabular-nums">
-                {formatCurrency(expenseTotal.actual + savingsTotal.actual)}
-              </p>
+              <p className="text-slate-500 text-xs mb-1">支出実績</p>
+              <p className="text-slate-300 font-bold text-sm tabular-nums">{formatCurrency(expenseTotal.actual)}</p>
             </div>
             <div className="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-center">
-              <p className="text-slate-500 text-xs mb-1">支出残り</p>
+              <p className="text-slate-500 text-xs mb-1">残り</p>
               <p className={`font-bold text-sm tabular-nums ${
                 expenseTotal.budget - expenseTotal.actual < 0 ? "text-red-400" : "text-green-400"
               }`}>
