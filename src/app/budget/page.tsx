@@ -408,11 +408,8 @@ export default function BudgetPage() {
           {/* 貯蓄・積立セクション（配分額の確認のみ） */}
           {savingsCats.length > 0 && (
             <Card className="p-0 overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60 flex items-center justify-between">
+              <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">貯蓄・積立</span>
-                <span className="text-xs text-slate-500 tabular-nums">
-                  今月配分 {formatCurrency(savingsCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0), 0))}
-                </span>
               </div>
               <div className="divide-y divide-slate-800/60">
                 {savingsCats.map((cat) => {
@@ -426,6 +423,13 @@ export default function BudgetPage() {
                     </div>
                   );
                 })}
+                {/* 合計行 */}
+                <div className="px-4 py-3 flex items-center justify-between bg-slate-800/30">
+                  <span className="text-slate-400 text-sm font-semibold">合計</span>
+                  <span className="text-purple-200 font-bold tabular-nums text-sm">
+                    {formatCurrency(savingsCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0), 0))}
+                  </span>
+                </div>
               </div>
             </Card>
           )}
