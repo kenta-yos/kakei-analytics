@@ -75,6 +75,7 @@ export default function BudgetPage() {
   const [showIncomeBreakdown, setShowIncomeBreakdown] = useState(false);
   const [prevActuals, setPrevActuals] = useState<Record<string, number>>({});
   const [existingBudgets, setExistingBudgets] = useState<BudgetRow[]>([]);
+  const [cumulativeSavings, setCumulativeSavings] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -103,6 +104,7 @@ export default function BudgetPage() {
 
       const existing: BudgetRow[] = budgetJson.data ?? [];
       setExistingBudgets(existing);
+      setCumulativeSavings(budgetJson.cumulativeSavings ?? {});
 
       const carryoverItems: CarryoverItem[] = carryoverJson.data ?? [];
 
@@ -414,21 +416,40 @@ export default function BudgetPage() {
               <div className="divide-y divide-slate-800/60">
                 {savingsCats.map((cat) => {
                   const allocation = editMap[cat]?.allocation ?? 0;
+                  const cumulative = cumulativeSavings[cat] ?? 0;
                   return (
-                    <div key={cat} className="px-4 py-3 flex items-center justify-between">
-                      <span className="font-medium text-slate-200 text-sm">{cat}</span>
-                      <span className="text-purple-300 font-medium tabular-nums text-sm">
-                        {allocation > 0 ? formatCurrency(allocation) : "—"}
-                      </span>
+                    <div key={cat} className="px-4 py-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-slate-200 text-sm">{cat}</span>
+                        <span className="text-purple-300 font-medium tabular-nums text-sm">
+                          {allocation > 0 ? formatCurrency(allocation) : "—"}
+                        </span>
+                      </div>
+                      {cumulative > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-500">累計</span>
+                          <span className="text-xs text-purple-400 tabular-nums font-medium">{formatCurrency(cumulative)}</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
                 {/* 合計行 */}
-                <div className="px-4 py-3 flex items-center justify-between bg-slate-800/30">
-                  <span className="text-slate-400 text-sm font-semibold">合計</span>
-                  <span className="text-purple-200 font-bold tabular-nums text-sm">
-                    {formatCurrency(savingsCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0), 0))}
-                  </span>
+                <div className="px-4 py-3 bg-slate-800/30">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-slate-400 text-sm font-semibold">合計</span>
+                    <span className="text-purple-200 font-bold tabular-nums text-sm">
+                      {formatCurrency(savingsCats.reduce((s, c) => s + (editMap[c]?.allocation ?? 0), 0))}
+                    </span>
+                  </div>
+                  {savingsCats.some((c) => (cumulativeSavings[c] ?? 0) > 0) && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-500">累計合計</span>
+                      <span className="text-xs text-purple-300 tabular-nums font-bold">
+                        {formatCurrency(savingsCats.reduce((s, c) => s + (cumulativeSavings[c] ?? 0), 0))}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>

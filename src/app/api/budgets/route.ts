@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { budgets, transactions } from "@/lib/schema";
-import { eq, and, sql, ne } from "drizzle-orm";
+import { eq, and, sql, ne, inArray } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -64,7 +64,27 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ data: result, year, month });
+    // 貯蓄カテゴリの累計配分額（当月以前の全 allocation 合計）
+    const savingsCategories = ["貯蓄", "貯蓄（投信）"];
+    const cumulativeRows = await db
+      .select({
+        categoryName: budgets.categoryName,
+        total: sql<number>`sum(allocation)`,
+      })
+      .from(budgets)
+      .where(
+        and(
+          inArray(budgets.categoryName, savingsCategories),
+          sql`(year * 100 + month) <= ${year * 100 + month}`
+        )
+      )
+      .groupBy(budgets.categoryName);
+
+    const cumulativeSavings = Object.fromEntries(
+      cumulativeRows.map((r) => [r.categoryName, Number(r.total ?? 0)])
+    );
+
+    return NextResponse.json({ data: result, year, month, cumulativeSavings });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "予算の取得に失敗しました" }, { status: 500 });
