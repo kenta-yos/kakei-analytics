@@ -25,16 +25,7 @@ export async function GET(req: NextRequest) {
 
     if (year) conditions.push(eq(transactions.year, year));
 
-    const rows = await db
-      .selectDistinct({ category: transactions.category })
-      .from(transactions)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(
-        sql`count(*) over (partition by category) desc`,
-        transactions.category
-      );
-
-    // 利用頻度順に並べるため集計も取る
+    // 利用頻度順に並べて返す
     const countRows = await db
       .select({
         category: transactions.category,
