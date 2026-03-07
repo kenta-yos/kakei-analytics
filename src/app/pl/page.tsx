@@ -12,10 +12,7 @@ type MonthlySummary = {
   categories?: Record<string, { expense: number; income: number; count: number }>;
 };
 
-type QuarterlySummary = {
-  year: number;
-  quarter: number;
-  months: number[];
+type CategorySummary = {
   totalIncome: number;
   totalExpense: number;
   netIncome: number;
@@ -24,10 +21,8 @@ type QuarterlySummary = {
 
 type QuarterRow = {
   quarter: number;
-  label: string;
   income: number;
   expense: number;
-  months: MonthlySummary[];
 };
 
 export default function PLPage() {
@@ -35,27 +30,26 @@ export default function PLPage() {
   const [mode, setMode] = useState<"monthly" | "quarterly" | "yearly">("monthly");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [data, setData] = useState<MonthlySummary[]>([]);
-  const [detail, setDetail] = useState<MonthlySummary | null>(null);
-  const [quarterDetail, setQuarterDetail] = useState<QuarterlySummary | null>(null);
+  const [monthlyData, setMonthlyData] = useState<MonthlySummary[]>([]);
+  const [monthDetail, setMonthDetail] = useState<MonthlySummary | null>(null);
+  const [yearCategories, setYearCategories] = useState<CategorySummary | null>(null);
   const [loading, setLoading] = useState(false);
-  const [qDetailLoading, setQDetailLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    setQuarterDetail(null);
     try {
       if (mode === "monthly") {
         const res = await fetch(`/api/summary?year=${year}&month=${month}`);
         const json = await res.json();
-        setDetail(json.data);
-        setData([]);
+        setMonthDetail(json.data);
+        setMonthlyData([]);
+        setYearCategories(null);
       } else {
-        // quarterly も yearly も月別データを取得してフロントで集計
         const res = await fetch(`/api/summary?year=${year}`);
         const json = await res.json();
-        setData(json.data ?? []);
-        setDetail(null);
+        setMonthlyData(json.data ?? []);
+        setYearCategories(json.yearCategories ?? null);
+        setMonthDetail(null);
       }
     } finally {
       setLoading(false);
@@ -64,38 +58,17 @@ export default function PLPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  async function fetchQuarterDetail(q: number) {
-    if (quarterDetail?.quarter === q) {
-      setQuarterDetail(null);
-      return;
-    }
-    setQDetailLoading(true);
-    try {
-      const res = await fetch(`/api/summary?year=${year}&quarter=${q}`);
-      const json = await res.json();
-      setQuarterDetail(json.data ?? null);
-    } finally {
-      setQDetailLoading(false);
-    }
-  }
-
-  const yearTotal = data.reduce(
-    (acc, d) => ({
-      income: acc.income + d.totalIncome,
-      expense: acc.expense + d.totalExpense,
-    }),
+  const yearTotal = monthlyData.reduce(
+    (acc, d) => ({ income: acc.income + d.totalIncome, expense: acc.expense + d.totalExpense }),
     { income: 0, expense: 0 }
   );
 
-  // 四半期ごとに集計
   const quarterRows: QuarterRow[] = [1, 2, 3, 4].map((q) => {
-    const qMonths = data.filter((d) => Math.ceil(d.month / 3) === q);
+    const qMonths = monthlyData.filter((d) => Math.ceil(d.month / 3) === q);
     return {
       quarter: q,
-      label: `Q${q} (${(q - 1) * 3 + 1}〜${q * 3}月)`,
       income: qMonths.reduce((s, d) => s + d.totalIncome, 0),
       expense: qMonths.reduce((s, d) => s + d.totalExpense, 0),
-      months: qMonths,
     };
   });
 
@@ -103,23 +76,17 @@ export default function PLPage() {
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">損益計算書</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">損益計算書</h1>
           <p className="text-slate-400 text-sm mt-0.5">振替・除外項目を除いた実際の収支（投資損益含む）</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-slate-800 rounded-lg p-0.5">
-            <button onClick={() => setMode("monthly")}
-              className={`px-3 py-1.5 text-sm rounded-md transition ${mode === "monthly" ? "bg-blue-600 text-white" : "text-slate-400"}`}>
-              月次
-            </button>
-            <button onClick={() => setMode("quarterly")}
-              className={`px-3 py-1.5 text-sm rounded-md transition ${mode === "quarterly" ? "bg-blue-600 text-white" : "text-slate-400"}`}>
-              四半期
-            </button>
-            <button onClick={() => setMode("yearly")}
-              className={`px-3 py-1.5 text-sm rounded-md transition ${mode === "yearly" ? "bg-blue-600 text-white" : "text-slate-400"}`}>
-              年次
-            </button>
+            {(["monthly", "quarterly", "yearly"] as const).map((m) => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`px-3 py-1.5 text-sm rounded-md transition ${mode === m ? "bg-blue-600 text-white" : "text-slate-400"}`}>
+                {m === "monthly" ? "月次" : m === "quarterly" ? "四半期" : "年次"}
+              </button>
+            ))}
           </div>
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
             className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
@@ -140,55 +107,153 @@ export default function PLPage() {
 
       {loading ? (
         <p className="text-slate-500">読み込み中...</p>
-      ) : mode === "monthly" && detail ? (
-        <MonthlyPL detail={detail} />
+      ) : mode === "monthly" && monthDetail ? (
+        <PeriodPL summary={monthDetail} label={`${year}年${month}月`} />
       ) : mode === "quarterly" ? (
-        <QuarterlyPL
-          quarterRows={quarterRows}
-          year={year}
-          yearTotal={yearTotal}
-          quarterDetail={quarterDetail}
-          qDetailLoading={qDetailLoading}
-          onSelectQuarter={fetchQuarterDetail}
-        />
+        <QuarterlyPL year={year} quarterRows={quarterRows} yearTotal={yearTotal} />
       ) : mode === "yearly" ? (
-        <YearlyPL data={data} year={year} yearTotal={yearTotal} />
+        <YearlyPL monthlyData={monthlyData} year={year} yearTotal={yearTotal} yearCategories={yearCategories} />
       ) : null}
     </div>
   );
 }
 
-function QuarterlyPL({
-  quarterRows, year, yearTotal, quarterDetail, qDetailLoading, onSelectQuarter,
-}: {
-  quarterRows: QuarterRow[];
-  year: number;
-  yearTotal: { income: number; expense: number };
-  quarterDetail: QuarterlySummary | null;
-  qDetailLoading: boolean;
-  onSelectQuarter: (q: number) => void;
-}) {
-  const netTotal = yearTotal.income - yearTotal.expense;
+/** カテゴリ別収支テーブル（月次・四半期・年次で共用） */
+function CategoryBreakdown({ summary, label }: { summary: CategorySummary; label: string }) {
+  const categories = summary.categories ?? {};
+  const expenseCats = Object.entries(categories).filter(([, v]) => v.expense > 0).sort((a, b) => b[1].expense - a[1].expense);
+  const incomeCats = Object.entries(categories).filter(([, v]) => v.income > 0).sort((a, b) => b[1].income - a[1].income);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <Card>
+        <CardTitle>{label} 支出明細</CardTitle>
+        <table className="data-table">
+          <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
+          <tbody>
+            {expenseCats.map(([cat, v]) => (
+              <tr key={cat}>
+                <td className="text-slate-300">{cat}</td>
+                <td className="text-right text-red-300">{formatCurrency(v.expense)}</td>
+                <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+              </tr>
+            ))}
+            <tr className="font-semibold">
+              <td className="text-white">合計</td>
+              <td className="text-right text-red-400">{formatCurrency(summary.totalExpense)}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
+      <Card>
+        <CardTitle>{label} 収入明細</CardTitle>
+        <table className="data-table">
+          <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
+          <tbody>
+            {incomeCats.map(([cat, v]) => (
+              <tr key={cat}>
+                <td className="text-slate-300">{cat}</td>
+                <td className="text-right text-green-300">{formatCurrency(v.income)}</td>
+                <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+              </tr>
+            ))}
+            <tr className="font-semibold">
+              <td className="text-white">合計</td>
+              <td className="text-right text-green-400">{formatCurrency(summary.totalIncome)}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+/** 月次・四半期・年次共用の収支KPIカード */
+function KpiCards({ income, expense, label }: { income: number; expense: number; label: string }) {
+  const net = income - expense;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+      <Card>
+        <CardTitle>{label} 収入合計</CardTitle>
+        <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(income)}</p>
+      </Card>
+      <Card>
+        <CardTitle>{label} 支出合計</CardTitle>
+        <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(expense)}</p>
+      </Card>
+      <Card>
+        <CardTitle>{label} 純損益</CardTitle>
+        <p className={`text-xl sm:text-2xl font-bold ${net >= 0 ? "text-green-400" : "text-red-400"}`}>
+          {formatCurrencySigned(net)}
+        </p>
+      </Card>
+    </div>
+  );
+}
+
+/** 月次 */
+function PeriodPL({ summary, label }: { summary: MonthlySummary; label: string }) {
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <Card>
-          <CardTitle>{year}年 収入合計</CardTitle>
-          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(yearTotal.income)}</p>
-        </Card>
-        <Card>
-          <CardTitle>{year}年 支出合計</CardTitle>
-          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(yearTotal.expense)}</p>
-        </Card>
-        <Card>
-          <CardTitle>{year}年 純損益</CardTitle>
-          <p className={`text-xl sm:text-2xl font-bold ${netTotal >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {formatCurrencySigned(netTotal)}
-          </p>
-        </Card>
+      <KpiCards income={summary.totalIncome} expense={summary.totalExpense} label={label} />
+      {summary.categories && <CategoryBreakdown summary={summary as CategorySummary} label={label} />}
+    </div>
+  );
+}
+
+/** 四半期 */
+function QuarterlyPL({ year, quarterRows, yearTotal }: {
+  year: number;
+  quarterRows: QuarterRow[];
+  yearTotal: { income: number; expense: number };
+}) {
+  const now = new Date();
+  const currentQ = Math.ceil((now.getMonth() + 1) / 3);
+  const [selectedQ, setSelectedQ] = useState(currentQ);
+  const [detail, setDetail] = useState<CategorySummary | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    setDetailLoading(true);
+    setDetail(null);
+    fetch(`/api/summary?year=${year}&quarter=${selectedQ}`)
+      .then((r) => r.json())
+      .then((json) => setDetail(json.data ?? null))
+      .finally(() => setDetailLoading(false));
+  }, [year, selectedQ]);
+
+  const qRow = quarterRows.find((q) => q.quarter === selectedQ);
+  const qLabel = `${year}年Q${selectedQ}`;
+
+  return (
+    <div className="space-y-4">
+      {/* Q1〜Q4タブ */}
+      <div className="flex bg-slate-800 rounded-lg p-0.5 w-fit">
+        {[1, 2, 3, 4].map((q) => (
+          <button key={q} onClick={() => setSelectedQ(q)}
+            className={`px-4 py-1.5 text-sm rounded-md transition ${selectedQ === q ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200"}`}>
+            Q{q}
+          </button>
+        ))}
       </div>
+
+      {/* 選択四半期のKPI */}
+      {qRow && (
+        <KpiCards income={qRow.income} expense={qRow.expense} label={qLabel} />
+      )}
+
+      {/* カテゴリ内訳 */}
+      {detailLoading ? (
+        <p className="text-slate-500 text-sm">読み込み中...</p>
+      ) : detail ? (
+        <CategoryBreakdown summary={detail} label={qLabel} />
+      ) : null}
+
+      {/* 四半期サマリーテーブル */}
       <Card>
-        <CardTitle>四半期別損益</CardTitle>
+        <CardTitle>{year}年 四半期別損益</CardTitle>
         <table className="data-table">
           <thead>
             <tr>
@@ -201,16 +266,12 @@ function QuarterlyPL({
           <tbody>
             {quarterRows.map((q) => {
               const net = q.income - q.expense;
-              const isSelected = quarterDetail?.quarter === q.quarter;
               return (
-                <tr
-                  key={q.quarter}
-                  onClick={() => onSelectQuarter(q.quarter)}
-                  className={`cursor-pointer hover:bg-slate-800/50 transition ${isSelected ? "bg-slate-800/60" : ""}`}
-                >
-                  <td className={`font-medium ${isSelected ? "text-blue-300" : "text-slate-300"}`}>
-                    {q.label}
-                    <span className="ml-1.5 text-xs text-slate-500">▶</span>
+                <tr key={q.quarter}
+                  onClick={() => setSelectedQ(q.quarter)}
+                  className={`cursor-pointer hover:bg-slate-800/50 transition ${selectedQ === q.quarter ? "bg-slate-800/60" : ""}`}>
+                  <td className={`font-medium ${selectedQ === q.quarter ? "text-blue-300" : "text-slate-300"}`}>
+                    Q{q.quarter} ({(q.quarter - 1) * 3 + 1}〜{q.quarter * 3}月)
                   </td>
                   <td className="text-right text-green-400">{q.income > 0 ? formatCurrency(q.income) : "—"}</td>
                   <td className="text-right text-red-400">{q.expense > 0 ? formatCurrency(q.expense) : "—"}</td>
@@ -224,169 +285,35 @@ function QuarterlyPL({
               <td className="text-white">合計</td>
               <td className="text-right text-green-400">{formatCurrency(yearTotal.income)}</td>
               <td className="text-right text-red-400">{formatCurrency(yearTotal.expense)}</td>
-              <td className={`text-right ${netTotal >= 0 ? "text-green-400" : "text-red-400"}`}>
-                {formatCurrencySigned(netTotal)}
+              <td className={`text-right ${yearTotal.income - yearTotal.expense >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {formatCurrencySigned(yearTotal.income - yearTotal.expense)}
               </td>
             </tr>
           </tbody>
         </table>
       </Card>
-
-      {/* 四半期別カテゴリ内訳 */}
-      {qDetailLoading && <p className="text-slate-500 text-sm">読み込み中...</p>}
-      {!qDetailLoading && quarterDetail && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <CardTitle>Q{quarterDetail.quarter} 支出明細</CardTitle>
-            <table className="data-table">
-              <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
-              <tbody>
-                {Object.entries(quarterDetail.categories)
-                  .filter(([, v]) => v.expense > 0)
-                  .sort((a, b) => b[1].expense - a[1].expense)
-                  .map(([cat, v]) => (
-                    <tr key={cat}>
-                      <td className="text-slate-300">{cat}</td>
-                      <td className="text-right text-red-300">{formatCurrency(v.expense)}</td>
-                      <td className="text-right text-slate-500 text-xs">{v.count}件</td>
-                    </tr>
-                  ))}
-                <tr className="font-semibold">
-                  <td className="text-white">合計</td>
-                  <td className="text-right text-red-400">{formatCurrency(quarterDetail.totalExpense)}</td>
-                  <td></td>
-                </tr>
-              </tbody>
-            </table>
-          </Card>
-          <Card>
-            <CardTitle>Q{quarterDetail.quarter} 収入明細</CardTitle>
-            <table className="data-table">
-              <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
-              <tbody>
-                {Object.entries(quarterDetail.categories)
-                  .filter(([, v]) => v.income > 0)
-                  .sort((a, b) => b[1].income - a[1].income)
-                  .map(([cat, v]) => (
-                    <tr key={cat}>
-                      <td className="text-slate-300">{cat}</td>
-                      <td className="text-right text-green-300">{formatCurrency(v.income)}</td>
-                      <td className="text-right text-slate-500 text-xs">{v.count}件</td>
-                    </tr>
-                  ))}
-                <tr className="font-semibold">
-                  <td className="text-white">合計</td>
-                  <td className="text-right text-green-400">{formatCurrency(quarterDetail.totalIncome)}</td>
-                  <td></td>
-                </tr>
-              </tbody>
-            </table>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }
 
-function MonthlyPL({ detail }: { detail: MonthlySummary }) {
-  const categories = detail.categories ?? {};
-  const expenseCategories = Object.entries(categories)
-    .filter(([, v]) => v.expense > 0)
-    .sort((a, b) => b[1].expense - a[1].expense);
-  const incomeCategories = Object.entries(categories)
-    .filter(([, v]) => v.income > 0)
-    .sort((a, b) => b[1].income - a[1].income);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <Card>
-          <CardTitle>収入合計</CardTitle>
-          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(detail.totalIncome)}</p>
-        </Card>
-        <Card>
-          <CardTitle>支出合計</CardTitle>
-          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(detail.totalExpense)}</p>
-        </Card>
-        <Card>
-          <CardTitle>当期純損益</CardTitle>
-          <p className={`text-xl sm:text-2xl font-bold ${detail.netIncome >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {formatCurrencySigned(detail.netIncome)}
-          </p>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardTitle>支出明細</CardTitle>
-          <table className="data-table">
-            <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
-            <tbody>
-              {expenseCategories.map(([cat, v]) => (
-                <tr key={cat}>
-                  <td className="text-slate-300">{cat}</td>
-                  <td className="text-right text-red-300">{formatCurrency(v.expense)}</td>
-                  <td className="text-right text-slate-500 text-xs">{v.count}件</td>
-                </tr>
-              ))}
-              <tr className="font-semibold">
-                <td className="text-white">合計</td>
-                <td className="text-right text-red-400">{formatCurrency(detail.totalExpense)}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-        </Card>
-        <Card>
-          <CardTitle>収入明細</CardTitle>
-          <table className="data-table">
-            <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
-            <tbody>
-              {incomeCategories.map(([cat, v]) => (
-                <tr key={cat}>
-                  <td className="text-slate-300">{cat}</td>
-                  <td className="text-right text-green-300">{formatCurrency(v.income)}</td>
-                  <td className="text-right text-slate-500 text-xs">{v.count}件</td>
-                </tr>
-              ))}
-              <tr className="font-semibold">
-                <td className="text-white">合計</td>
-                <td className="text-right text-green-400">{formatCurrency(detail.totalIncome)}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function YearlyPL({
-  data, year, yearTotal,
-}: {
-  data: MonthlySummary[];
+/** 年次 */
+function YearlyPL({ monthlyData, year, yearTotal, yearCategories }: {
+  monthlyData: MonthlySummary[];
   year: number;
   yearTotal: { income: number; expense: number };
+  yearCategories: CategorySummary | null;
 }) {
+  const net = yearTotal.income - yearTotal.expense;
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <Card>
-          <CardTitle>{year}年 収入合計</CardTitle>
-          <p className="text-xl sm:text-2xl font-bold text-green-400">{formatCurrency(yearTotal.income)}</p>
-        </Card>
-        <Card>
-          <CardTitle>{year}年 支出合計</CardTitle>
-          <p className="text-xl sm:text-2xl font-bold text-red-400">{formatCurrency(yearTotal.expense)}</p>
-        </Card>
-        <Card>
-          <CardTitle>{year}年 純損益</CardTitle>
-          <p className={`text-xl sm:text-2xl font-bold ${yearTotal.income - yearTotal.expense >= 0 ? "text-green-400" : "text-red-400"}`}>
-            {formatCurrencySigned(yearTotal.income - yearTotal.expense)}
-          </p>
-        </Card>
-      </div>
+      <KpiCards income={yearTotal.income} expense={yearTotal.expense} label={`${year}年`} />
+
+      {/* カテゴリ別集計 */}
+      {yearCategories && (
+        <CategoryBreakdown summary={yearCategories} label={`${year}年`} />
+      )}
+
+      {/* 月別テーブル */}
       <Card>
         <CardTitle>月別損益</CardTitle>
         <table className="data-table">
@@ -399,7 +326,7 @@ function YearlyPL({
             </tr>
           </thead>
           <tbody>
-            {data.map((d) => (
+            {monthlyData.map((d) => (
               <tr key={d.month}>
                 <td className="text-slate-400">{d.month}月</td>
                 <td className="text-right text-green-400">{formatCurrency(d.totalIncome)}</td>
@@ -413,8 +340,8 @@ function YearlyPL({
               <td className="text-white">合計</td>
               <td className="text-right text-green-400">{formatCurrency(yearTotal.income)}</td>
               <td className="text-right text-red-400">{formatCurrency(yearTotal.expense)}</td>
-              <td className={`text-right ${yearTotal.income - yearTotal.expense >= 0 ? "text-green-400" : "text-red-400"}`}>
-                {formatCurrencySigned(yearTotal.income - yearTotal.expense)}
+              <td className={`text-right ${net >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {formatCurrencySigned(net)}
               </td>
             </tr>
           </tbody>

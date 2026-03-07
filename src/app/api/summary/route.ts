@@ -40,9 +40,12 @@ export async function GET(req: NextRequest) {
     }
 
     if (year) {
-      // 年次の月別一覧
-      const data = await getYearlyMonthlyBreakdown(year);
-      return NextResponse.json({ data });
+      // 年次の月別一覧 + カテゴリ別年間集計
+      const [data, yearCategories] = await Promise.all([
+        getYearlyMonthlyBreakdown(year),
+        getYearlyCategoryBreakdown(year),
+      ]);
+      return NextResponse.json({ data, yearCategories });
     }
 
     // デフォルト: 全期間の年次サマリー
@@ -126,6 +129,44 @@ async function getYearlyMonthlyBreakdown(year: number) {
     totalExpense: Number(r.totalExpense ?? 0),
     netIncome: Number(r.totalIncome ?? 0) - Number(r.totalExpense ?? 0),
   }));
+}
+
+async function getYearlyCategoryBreakdown(year: number) {
+  const rows = await db
+    .select({
+      type: transactions.type,
+      category: transactions.category,
+      totalExpense: sql<number>`sum(expense_amount)`,
+      totalIncome: sql<number>`sum(income_amount)`,
+      count: sql<number>`count(*)`,
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.year, year),
+        plCondition,
+        ne(transactions.type, "振替"),
+        ne(transactions.category, "振替")
+      )
+    )
+    .groupBy(transactions.type, transactions.category)
+    .orderBy(sql`sum(expense_amount) desc`);
+
+  const categories: Record<string, { expense: number; income: number; count: number }> = {};
+  let totalIncome = 0;
+  let totalExpense = 0;
+
+  for (const row of rows) {
+    const key = row.category;
+    if (!categories[key]) categories[key] = { expense: 0, income: 0, count: 0 };
+    categories[key].expense += Number(row.totalExpense ?? 0);
+    categories[key].income += Number(row.totalIncome ?? 0);
+    categories[key].count += Number(row.count ?? 0);
+    totalExpense += Number(row.totalExpense ?? 0);
+    totalIncome += Number(row.totalIncome ?? 0);
+  }
+
+  return { totalIncome, totalExpense, netIncome: totalIncome - totalExpense, categories };
 }
 
 async function getQuarterlySummary(year: number, quarter: number) {

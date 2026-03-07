@@ -24,24 +24,31 @@ const TYPE_LABELS: Record<string, string> = {
   other: "その他",
 };
 
+// 四半期末月
+const Q_MONTH: Record<number, number> = { 1: 3, 2: 6, 3: 9, 4: 12 };
+
 export default function BalanceSheetPage() {
   const now = new Date();
+  const [mode, setMode] = useState<"yearly" | "quarterly" | "monthly">("monthly");
   const [year, setYear] = useState(now.getFullYear());
+  const [quarter, setQuarter] = useState(Math.ceil((now.getMonth() + 1) / 3));
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [assets, setAssets] = useState<AssetSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 実際に使う月を計算
+  const effectiveMonth = mode === "yearly" ? 12 : mode === "quarterly" ? Q_MONTH[quarter] : month;
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // year+month を両方渡すことで「指定月以前の最新残高」を取得
-      const res = await fetch(`/api/analytics?type=asset&year=${year}&month=${month}`);
+      const res = await fetch(`/api/analytics?type=asset&year=${year}&month=${effectiveMonth}`);
       const json = await res.json();
       setAssets((json.data ?? []) as AssetSnapshot[]);
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, effectiveMonth]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -52,49 +59,64 @@ export default function BalanceSheetPage() {
     return acc;
   }, { bank: [], credit: [], investment: [], ic_card: [], qr_pay: [], cash: [], other: [] });
 
-  // 資産合計（残高が正のもの）
-  const totalAssets = assets
-    .filter((a) => a.closingBalance > 0)
-    .reduce((sum, a) => sum + a.closingBalance, 0);
-
-  // 負債合計（残高がマイナスのもの、クレカ以外の借入金・未払金も含む）
-  const totalLiabilities = assets
-    .filter((a) => a.closingBalance < 0)
-    .reduce((sum, a) => sum + Math.abs(a.closingBalance), 0);
-
+  const totalAssets = assets.filter((a) => a.closingBalance > 0).reduce((sum, a) => sum + a.closingBalance, 0);
+  const totalLiabilities = assets.filter((a) => a.closingBalance < 0).reduce((sum, a) => sum + Math.abs(a.closingBalance), 0);
   const netAssets = totalAssets - totalLiabilities;
+
+  // 表示ラベル
+  const periodLabel = mode === "yearly"
+    ? `${year}年12月末`
+    : mode === "quarterly"
+    ? `${year}年Q${quarter}末（${Q_MONTH[quarter]}月末）`
+    : `${year}年${month}月末`;
 
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl sm:text-xl sm:text-2xl font-bold text-white">貸借対照表</h1>
-          <p className="text-slate-400 text-sm mt-0.5">月末時点の資産・負債・純資産</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-white">貸借対照表</h1>
+          <p className="text-slate-400 text-sm mt-0.5">{periodLabel}時点の資産・負債・純資産</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* モード切り替え */}
+          <div className="flex bg-slate-800 rounded-lg p-0.5">
+            {(["yearly", "quarterly", "monthly"] as const).map((m) => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`px-3 py-1.5 text-sm rounded-md transition ${mode === m ? "bg-blue-600 text-white" : "text-slate-400"}`}>
+                {m === "yearly" ? "年次" : m === "quarterly" ? "四半期" : "月次"}
+              </button>
+            ))}
+          </div>
+
+          {/* 年 */}
           <select value={year} onChange={(e) => setYear(Number(e.target.value))}
             className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
             {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
               <option key={y} value={y}>{y}年</option>
             ))}
           </select>
-          <div className="flex bg-slate-800 rounded-lg p-0.5">
-            {([1, 2, 3, 4] as const).map((q) => (
-              <button
-                key={q}
-                onClick={() => setMonth(q * 3)}
-                className={`px-2.5 py-1.5 text-xs rounded-md transition ${month === q * 3 ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200"}`}
-              >
-                Q{q}
-              </button>
-            ))}
-          </div>
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
-            className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-              <option key={m} value={m}>{m}月末</option>
-            ))}
-          </select>
+
+          {/* 四半期選択 */}
+          {mode === "quarterly" && (
+            <div className="flex bg-slate-800 rounded-lg p-0.5">
+              {[1, 2, 3, 4].map((q) => (
+                <button key={q} onClick={() => setQuarter(q)}
+                  className={`px-3 py-1.5 text-sm rounded-md transition ${quarter === q ? "bg-blue-600 text-white" : "text-slate-400 hover:text-slate-200"}`}>
+                  Q{q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 月選択 */}
+          {mode === "monthly" && (
+            <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
+              className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>{m}月末</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -163,22 +185,17 @@ export default function BalanceSheetPage() {
                 </div>
                 <table className="data-table">
                   <tbody>
-                    {assets
-                      .filter((a) => a.closingBalance < 0)
-                      .sort((a, b) => a.closingBalance - b.closingBalance)
-                      .map((a) => (
-                        <tr key={a.id}>
-                          <td className="text-slate-400">{a.assetName}</td>
-                          <td className="text-right text-red-400">{formatCurrency(Math.abs(a.closingBalance))}</td>
-                        </tr>
-                      ))}
+                    {assets.filter((a) => a.closingBalance < 0).sort((a, b) => a.closingBalance - b.closingBalance).map((a) => (
+                      <tr key={a.id}>
+                        <td className="text-slate-400">{a.assetName}</td>
+                        <td className="text-right text-red-400">{formatCurrency(Math.abs(a.closingBalance))}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </Card>
             ) : (
-              <Card>
-                <p className="text-slate-500 text-sm">負債なし</p>
-              </Card>
+              <Card><p className="text-slate-500 text-sm">負債なし</p></Card>
             )}
 
             {/* 純資産サマリー */}
