@@ -301,32 +301,56 @@ export default function AnalyticsPage() {
                     </span>
                   </div>
 
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>カテゴリ</th>
-                        <th className="text-right">{cmpLabel1}</th>
-                        <th className="text-right">{cmpLabel2}</th>
-                        <th className="text-right">増減</th>
-                        <th className="text-right hidden sm:table-cell">増減率</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cmpData.comparison.filter(r => r.amount1 > 0 || r.amount2 > 0).map((row) => (
-                        <tr key={row.category}>
-                          <td className="text-slate-300">{row.category}</td>
-                          <td className="text-right text-slate-400">{row.amount1 > 0 ? formatCurrency(row.amount1) : "—"}</td>
-                          <td className="text-right text-slate-300">{row.amount2 > 0 ? formatCurrency(row.amount2) : "—"}</td>
-                          <td className={`text-right font-medium ${row.diff > 0 ? "text-red-400" : row.diff < 0 ? "text-green-400" : "text-slate-500"}`}>
-                            {row.diff !== 0 ? (row.diff > 0 ? "+" : "") + formatCurrency(row.diff) : "±0"}
-                          </td>
-                          <td className={`text-right text-sm hidden sm:table-cell ${row.diff > 0 ? "text-red-400" : row.diff < 0 ? "text-green-400" : "text-slate-500"}`}>
-                            {row.diffPct !== null ? `${row.diff > 0 ? "+" : ""}${row.diffPct}%` : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {(() => {
+                    const totalDiff = cmpData.summary.total2 - cmpData.summary.total1;
+                    const rows = cmpData.comparison.filter(r => r.amount1 > 0 || r.amount2 > 0);
+                    return (
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>カテゴリ</th>
+                            <th className="text-right">{cmpLabel1}</th>
+                            <th className="text-right">{cmpLabel2}</th>
+                            <th className="text-right">増減</th>
+                            <th className="text-right">差分への寄与</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => {
+                            const contrib = totalDiff !== 0 ? Math.round(row.diff / Math.abs(totalDiff) * 10) / 10 : 0;
+                            const absContrib = Math.abs(contrib);
+                            const barW = Math.min(absContrib, 100);
+                            const isPos = row.diff > 0;
+                            return (
+                              <tr key={row.category}>
+                                <td className="text-slate-300">{row.category}</td>
+                                <td className="text-right text-slate-400">{row.amount1 > 0 ? formatCurrency(row.amount1) : "—"}</td>
+                                <td className="text-right text-slate-300">{row.amount2 > 0 ? formatCurrency(row.amount2) : "—"}</td>
+                                <td className={`text-right font-medium ${isPos ? "text-red-400" : row.diff < 0 ? "text-green-400" : "text-slate-500"}`}>
+                                  {row.diff !== 0 ? (isPos ? "+" : "") + formatCurrency(row.diff) : "±0"}
+                                </td>
+                                <td className="text-right">
+                                  {totalDiff !== 0 && row.diff !== 0 ? (
+                                    <div className="flex items-center justify-end gap-2">
+                                      <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden hidden sm:block">
+                                        <div
+                                          className={`h-full rounded-full ${isPos ? "bg-red-500" : "bg-green-500"}`}
+                                          style={{ width: `${barW}%` }}
+                                        />
+                                      </div>
+                                      <span className={`text-sm font-medium ${isPos ? "text-red-400" : "text-green-400"}`}>
+                                        {isPos ? "+" : ""}{contrib}%
+                                      </span>
+                                    </div>
+                                  ) : <span className="text-slate-600">—</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
 
                   {/* Gemini 要因分析 */}
                   <div className="pt-2 border-t border-slate-800">
