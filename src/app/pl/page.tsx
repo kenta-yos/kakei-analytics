@@ -231,32 +231,115 @@ function CategoryBreakdown({ summary, label, period }: { summary: CategorySummar
           ) : drilldownTxns.length === 0 ? (
             <p className="text-slate-500 text-sm">取引がありません</p>
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>日付</th>
-                  <th>内容</th>
-                  <th className="text-right">金額</th>
-                  <th className="hidden sm:table-cell">支払方法</th>
-                </tr>
-              </thead>
-              <tbody>
-                {drilldownTxns
-                  .sort((a, b) => (selected.side === "expense" ? b.expenseAmount - a.expenseAmount : b.incomeAmount - a.incomeAmount))
-                  .map((t) => (
-                    <tr key={t.id}>
-                      <td className="text-slate-400 whitespace-nowrap">{t.date.slice(0, 10)}</td>
-                      <td className="text-slate-300">{t.itemName}</td>
-                      <td className={`text-right font-medium ${selected.side === "expense" ? "text-red-300" : "text-green-300"}`}>
-                        {formatCurrency(selected.side === "expense" ? t.expenseAmount : t.incomeAmount)}
-                      </td>
-                      <td className="hidden sm:table-cell text-slate-500 text-xs">{t.paymentMethod ?? "—"}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+            <>
+              <table className="data-table mb-4">
+                <thead>
+                  <tr>
+                    <th>日付</th>
+                    <th>内容</th>
+                    <th className="text-right">金額</th>
+                    <th className="hidden sm:table-cell">支払方法</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {drilldownTxns
+                    .sort((a, b) => (selected.side === "expense" ? b.expenseAmount - a.expenseAmount : b.incomeAmount - a.incomeAmount))
+                    .map((t) => (
+                      <tr key={t.id}>
+                        <td className="text-slate-400 whitespace-nowrap">{t.date.slice(0, 10)}</td>
+                        <td className="text-slate-300">{t.itemName}</td>
+                        <td className={`text-right font-medium ${selected.side === "expense" ? "text-red-300" : "text-green-300"}`}>
+                          {formatCurrency(selected.side === "expense" ? t.expenseAmount : t.incomeAmount)}
+                        </td>
+                        <td className="hidden sm:table-cell text-slate-500 text-xs">{t.paymentMethod ?? "—"}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              <GeminiDrilldown
+                category={selected.cat}
+                side={selected.side}
+                label={label}
+                txns={drilldownTxns}
+              />
+            </>
           )}
         </Card>
+      )}
+    </div>
+  );
+}
+
+/** Geminiドリルダウン分析 */
+function GeminiDrilldown({ category, side, label, txns }: {
+  category: string;
+  side: "expense" | "income";
+  label: string;
+  txns: Transaction[];
+}) {
+  const [result, setResult] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const analyze = async () => {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    const sorted = [...txns].sort((a, b) =>
+      side === "expense" ? b.expenseAmount - a.expenseAmount : b.incomeAmount - a.incomeAmount
+    );
+    const total = sorted.reduce((s, t) => s + (side === "expense" ? t.expenseAmount : t.incomeAmount), 0);
+    const lines = sorted.map((t) =>
+      `${t.date.slice(0, 10)} | ${t.itemName} | ¥${(side === "expense" ? t.expenseAmount : t.incomeAmount).toLocaleString()}`
+    ).join("\n");
+
+    const context = `カテゴリ: ${category}\n期間: ${label}\n合計: ¥${total.toLocaleString()}\n件数: ${txns.length}件\n\n取引一覧（金額降順）:\n${lines}`;
+    const prompt = `上記は「${label}」の「${category}」カテゴリの${side === "expense" ? "支出" : "収入"}取引です。\nなぜ金額が高くなっているのか、どの取引が主因かを簡潔に分析してください。\n通常と異なる点や特徴的なパターンがあれば指摘してください。`;
+
+    try {
+      const res = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context, prompt }),
+      });
+      const json = await res.json();
+      if (json.error) {
+        setError(json.error);
+      } else {
+        setResult(json.text ?? "");
+      }
+    } catch {
+      setError("分析に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-700 pt-3">
+      {!result && !loading && (
+        <button
+          onClick={analyze}
+          className="flex items-center gap-2 px-3 py-1.5 bg-purple-800/40 hover:bg-purple-700/50 text-purple-300 hover:text-purple-200 text-sm rounded-lg transition"
+        >
+          ✦ Geminiで原因を分析
+        </button>
+      )}
+      {loading && (
+        <p className="text-slate-500 text-sm">Geminiが分析中...</p>
+      )}
+      {error && (
+        <p className="text-red-400 text-sm">{error}</p>
+      )}
+      {result && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-purple-300 text-xs font-medium">✦ Gemini 分析結果</p>
+            <button onClick={() => { setResult(null); }} className="text-slate-600 hover:text-slate-400 text-xs">再分析</button>
+          </div>
+          <p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">{result}</p>
+        </div>
       )}
     </div>
   );
