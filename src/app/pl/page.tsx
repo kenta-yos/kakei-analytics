@@ -3,6 +3,21 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency, formatCurrencySigned } from "@/lib/utils";
 
+type Transaction = {
+  id: number;
+  date: string;
+  itemName: string;
+  category: string;
+  expenseAmount: number;
+  incomeAmount: number;
+  paymentMethod: string | null;
+};
+
+type DrilldownPeriod =
+  | { type: "monthly"; year: number; month: number }
+  | { type: "quarterly"; year: number; quarter: number }
+  | { type: "yearly"; year: number };
+
 type MonthlySummary = {
   year: number;
   month: number;
@@ -108,7 +123,7 @@ export default function PLPage() {
       {loading ? (
         <p className="text-slate-500">読み込み中...</p>
       ) : mode === "monthly" && monthDetail ? (
-        <PeriodPL summary={monthDetail} label={`${year}年${month}月`} />
+        <PeriodPL summary={monthDetail} label={`${year}年${month}月`} year={year} month={month} />
       ) : mode === "quarterly" ? (
         <QuarterlyPL year={year} quarterRows={quarterRows} yearTotal={yearTotal} />
       ) : mode === "yearly" ? (
@@ -119,53 +134,130 @@ export default function PLPage() {
 }
 
 /** カテゴリ別収支テーブル（月次・四半期・年次で共用） */
-function CategoryBreakdown({ summary, label }: { summary: CategorySummary; label: string }) {
+function CategoryBreakdown({ summary, label, period }: { summary: CategorySummary; label: string; period: DrilldownPeriod }) {
+  const [selected, setSelected] = useState<{ cat: string; side: "expense" | "income" } | null>(null);
+  const [txns, setTxns] = useState<Transaction[]>([]);
+  const [txLoading, setTxLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selected) return;
+    setTxLoading(true);
+    const params = new URLSearchParams({ category: selected.cat, limit: "200" });
+    params.set("year", String(period.year));
+    if (period.type === "monthly") params.set("month", String(period.month));
+    if (period.type === "quarterly") params.set("quarter", String(period.quarter));
+    fetch(`/api/transactions?${params}`)
+      .then((r) => r.json())
+      .then((j) => setTxns((j.data ?? []) as Transaction[]))
+      .finally(() => setTxLoading(false));
+  }, [selected, period]);
+
+  const toggle = (cat: string, side: "expense" | "income") => {
+    setSelected((prev) => (prev?.cat === cat && prev.side === side ? null : { cat, side }));
+  };
+
   const categories = summary.categories ?? {};
   const expenseCats = Object.entries(categories).filter(([, v]) => v.expense > 0).sort((a, b) => b[1].expense - a[1].expense);
   const incomeCats = Object.entries(categories).filter(([, v]) => v.income > 0).sort((a, b) => b[1].income - a[1].income);
 
+  const drilldownTxns = selected
+    ? txns.filter((t) => selected.side === "expense" ? t.expenseAmount > 0 : t.incomeAmount > 0)
+    : [];
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <Card>
-        <CardTitle>{label} 支出明細</CardTitle>
-        <table className="data-table">
-          <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
-          <tbody>
-            {expenseCats.map(([cat, v]) => (
-              <tr key={cat}>
-                <td className="text-slate-300">{cat}</td>
-                <td className="text-right text-red-300">{formatCurrency(v.expense)}</td>
-                <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardTitle>{label} 支出明細</CardTitle>
+          <table className="data-table">
+            <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
+            <tbody>
+              {expenseCats.map(([cat, v]) => {
+                const isOpen = selected?.cat === cat && selected.side === "expense";
+                return (
+                  <tr key={cat}
+                    onClick={() => toggle(cat, "expense")}
+                    className={`cursor-pointer hover:bg-slate-800/50 transition ${isOpen ? "bg-slate-800/60" : ""}`}>
+                    <td className={`${isOpen ? "text-blue-300" : "text-slate-300"}`}>{cat}</td>
+                    <td className="text-right text-red-300">{formatCurrency(v.expense)}</td>
+                    <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+                  </tr>
+                );
+              })}
+              <tr className="font-semibold">
+                <td className="text-white">合計</td>
+                <td className="text-right text-red-400">{formatCurrency(summary.totalExpense)}</td>
+                <td></td>
               </tr>
-            ))}
-            <tr className="font-semibold">
-              <td className="text-white">合計</td>
-              <td className="text-right text-red-400">{formatCurrency(summary.totalExpense)}</td>
-              <td></td>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
-      <Card>
-        <CardTitle>{label} 収入明細</CardTitle>
-        <table className="data-table">
-          <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
-          <tbody>
-            {incomeCats.map(([cat, v]) => (
-              <tr key={cat}>
-                <td className="text-slate-300">{cat}</td>
-                <td className="text-right text-green-300">{formatCurrency(v.income)}</td>
-                <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+            </tbody>
+          </table>
+        </Card>
+        <Card>
+          <CardTitle>{label} 収入明細</CardTitle>
+          <table className="data-table">
+            <thead><tr><th>カテゴリ</th><th className="text-right">金額</th><th className="text-right">件数</th></tr></thead>
+            <tbody>
+              {incomeCats.map(([cat, v]) => {
+                const isOpen = selected?.cat === cat && selected.side === "income";
+                return (
+                  <tr key={cat}
+                    onClick={() => toggle(cat, "income")}
+                    className={`cursor-pointer hover:bg-slate-800/50 transition ${isOpen ? "bg-slate-800/60" : ""}`}>
+                    <td className={`${isOpen ? "text-blue-300" : "text-slate-300"}`}>{cat}</td>
+                    <td className="text-right text-green-300">{formatCurrency(v.income)}</td>
+                    <td className="text-right text-slate-500 text-xs">{v.count}件</td>
+                  </tr>
+                );
+              })}
+              <tr className="font-semibold">
+                <td className="text-white">合計</td>
+                <td className="text-right text-green-400">{formatCurrency(summary.totalIncome)}</td>
+                <td></td>
               </tr>
-            ))}
-            <tr className="font-semibold">
-              <td className="text-white">合計</td>
-              <td className="text-right text-green-400">{formatCurrency(summary.totalIncome)}</td>
-              <td></td>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      {/* ドリルダウンパネル */}
+      {selected && (
+        <Card>
+          <div className="flex justify-between items-center mb-3">
+            <CardTitle>{selected.cat}の取引明細</CardTitle>
+            <button onClick={() => setSelected(null)} className="text-slate-500 hover:text-slate-300 text-sm">✕ 閉じる</button>
+          </div>
+          {txLoading ? (
+            <p className="text-slate-500 text-sm">読み込み中...</p>
+          ) : drilldownTxns.length === 0 ? (
+            <p className="text-slate-500 text-sm">取引がありません</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>日付</th>
+                  <th>内容</th>
+                  <th className="text-right">金額</th>
+                  <th className="hidden sm:table-cell">支払方法</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drilldownTxns
+                  .sort((a, b) => (selected.side === "expense" ? b.expenseAmount - a.expenseAmount : b.incomeAmount - a.incomeAmount))
+                  .map((t) => (
+                    <tr key={t.id}>
+                      <td className="text-slate-400 whitespace-nowrap">{t.date.slice(0, 10)}</td>
+                      <td className="text-slate-300">{t.itemName}</td>
+                      <td className={`text-right font-medium ${selected.side === "expense" ? "text-red-300" : "text-green-300"}`}>
+                        {formatCurrency(selected.side === "expense" ? t.expenseAmount : t.incomeAmount)}
+                      </td>
+                      <td className="hidden sm:table-cell text-slate-500 text-xs">{t.paymentMethod ?? "—"}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
@@ -194,11 +286,12 @@ function KpiCards({ income, expense, label }: { income: number; expense: number;
 }
 
 /** 月次 */
-function PeriodPL({ summary, label }: { summary: MonthlySummary; label: string }) {
+function PeriodPL({ summary, label, year, month }: { summary: MonthlySummary; label: string; year: number; month: number }) {
+  const period: DrilldownPeriod = { type: "monthly", year, month };
   return (
     <div className="space-y-4">
       <KpiCards income={summary.totalIncome} expense={summary.totalExpense} label={label} />
-      {summary.categories && <CategoryBreakdown summary={summary as CategorySummary} label={label} />}
+      {summary.categories && <CategoryBreakdown summary={summary as CategorySummary} label={label} period={period} />}
     </div>
   );
 }
@@ -248,7 +341,7 @@ function QuarterlyPL({ year, quarterRows, yearTotal }: {
       {detailLoading ? (
         <p className="text-slate-500 text-sm">読み込み中...</p>
       ) : detail ? (
-        <CategoryBreakdown summary={detail} label={qLabel} />
+        <CategoryBreakdown summary={detail} label={qLabel} period={{ type: "quarterly", year, quarter: selectedQ }} />
       ) : null}
 
       {/* 四半期サマリーテーブル */}
@@ -310,7 +403,7 @@ function YearlyPL({ monthlyData, year, yearTotal, yearCategories }: {
 
       {/* カテゴリ別集計 */}
       {yearCategories && (
-        <CategoryBreakdown summary={yearCategories} label={`${year}年`} />
+        <CategoryBreakdown summary={yearCategories} label={`${year}年`} period={{ type: "yearly", year }} />
       )}
 
       {/* 月別テーブル */}

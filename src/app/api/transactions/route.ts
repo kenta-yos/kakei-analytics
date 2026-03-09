@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions } from "@/lib/schema";
-import { eq, and, gte, lte, desc, asc, sql, ilike, or } from "drizzle-orm";
+import { eq, and, desc, asc, sql, ilike, or, inArray } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const year = searchParams.get("year") ? parseInt(searchParams.get("year")!) : null;
   const month = searchParams.get("month") ? parseInt(searchParams.get("month")!) : null;
+  const quarter = searchParams.get("quarter") ? parseInt(searchParams.get("quarter")!) : null;
   const category = searchParams.get("category");
   const type = searchParams.get("type");
   const keyword = searchParams.get("keyword");
@@ -18,7 +19,12 @@ export async function GET(req: NextRequest) {
   try {
     const conditions = [];
     if (year) conditions.push(eq(transactions.year, year));
-    if (month) conditions.push(eq(transactions.month, month));
+    if (quarter) {
+      const qMonths = [1, 2, 3].map((m) => m + (quarter - 1) * 3);
+      conditions.push(inArray(transactions.month, qMonths));
+    } else if (month) {
+      conditions.push(eq(transactions.month, month));
+    }
     if (category) conditions.push(eq(transactions.category, category));
     if (type) conditions.push(eq(transactions.type, type));
     if (keyword) conditions.push(ilike(transactions.itemName, `%${keyword}%`));
