@@ -326,7 +326,7 @@ export default function BudgetPage() {
                         <div>
                           <p className="text-xs text-slate-500 mb-0.5">予算</p>
                           <p className="text-sm font-medium text-slate-300 tabular-nums">
-                            {totalB > 0 ? formatCurrency(totalB) : "—"}
+                            {hasData ? formatCurrencySigned(totalB) : "—"}
                           </p>
                           {(edit.carryover ?? 0) !== 0 && (
                             <p className={`text-xs tabular-nums ${edit.carryover > 0 ? "text-blue-400" : "text-red-400"}`}>
