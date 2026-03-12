@@ -314,7 +314,7 @@ export default function BudgetPage() {
                 const over = totalB > 0 && actual > totalB;
                 const isExpanded = expandedCategory === cat;
                 const txList = txCache[cat];
-                const hasData = totalB > 0 || actual > 0;
+                const hasData = totalB !== 0 || actual > 0;
 
                 return (
                   <div key={cat}>
