@@ -161,7 +161,7 @@ function CategoryBreakdown({ summary, label, period }: { summary: CategorySummar
   const incomeCats = Object.entries(categories).filter(([, v]) => v.income > 0).sort((a, b) => b[1].income - a[1].income);
 
   const drilldownTxns = selected
-    ? txns.filter((t) => selected.side === "expense" ? t.expenseAmount > 0 : t.incomeAmount > 0)
+    ? txns.filter((t) => selected.side === "expense" ? t.expenseAmount !== 0 : t.incomeAmount !== 0)
     : [];
 
   return (
