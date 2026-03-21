@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency, formatCurrencySigned } from "@/lib/utils";
 
@@ -160,9 +160,22 @@ function CategoryBreakdown({ summary, label, period }: { summary: CategorySummar
   const expenseCats = Object.entries(categories).filter(([, v]) => v.expense > 0).sort((a, b) => b[1].expense - a[1].expense);
   const incomeCats = Object.entries(categories).filter(([, v]) => v.income > 0).sort((a, b) => b[1].income - a[1].income);
 
-  const drilldownTxns = selected
-    ? txns.filter((t) => selected.side === "expense" ? t.expenseAmount !== 0 : t.incomeAmount !== 0)
-    : [];
+  const drilldownItems = useMemo(() => {
+    if (!selected) return [];
+    const filtered = txns.filter((t) => selected.side === "expense" ? t.expenseAmount !== 0 : t.incomeAmount !== 0);
+    const map = new Map<string, { itemName: string; amount: number; count: number }>();
+    for (const t of filtered) {
+      const amount = selected.side === "expense" ? t.expenseAmount : t.incomeAmount;
+      const existing = map.get(t.itemName);
+      if (existing) {
+        existing.amount += amount;
+        existing.count += 1;
+      } else {
+        map.set(t.itemName, { itemName: t.itemName, amount, count: 1 });
+      }
+    }
+    return [...map.values()].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  }, [txns, selected]);
 
   return (
     <div className="space-y-3">
@@ -228,29 +241,25 @@ function CategoryBreakdown({ summary, label, period }: { summary: CategorySummar
           </div>
           {txLoading ? (
             <p className="text-slate-500 text-sm">読み込み中...</p>
-          ) : drilldownTxns.length === 0 ? (
+          ) : drilldownItems.length === 0 ? (
             <p className="text-slate-500 text-sm">取引がありません</p>
           ) : (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>日付</th>
                   <th>内容</th>
                   <th className="text-right">金額</th>
-                  <th className="hidden sm:table-cell">支払方法</th>
+                  <th className="text-right">件数</th>
                 </tr>
               </thead>
               <tbody>
-                {drilldownTxns
-                  .sort((a, b) => (selected.side === "expense" ? b.expenseAmount - a.expenseAmount : b.incomeAmount - a.incomeAmount))
-                  .map((t) => (
-                    <tr key={t.id}>
-                      <td className="text-slate-400 whitespace-nowrap">{t.date.slice(0, 10)}</td>
-                      <td className="text-slate-300">{t.itemName}</td>
+                {drilldownItems.map((item) => (
+                    <tr key={item.itemName}>
+                      <td className="text-slate-300">{item.itemName}</td>
                       <td className={`text-right font-medium ${selected.side === "expense" ? "text-red-300" : "text-green-300"}`}>
-                        {formatCurrency(selected.side === "expense" ? t.expenseAmount : t.incomeAmount)}
+                        {formatCurrency(item.amount)}
                       </td>
-                      <td className="hidden sm:table-cell text-slate-500 text-xs">{t.paymentMethod ?? "—"}</td>
+                      <td className="text-right text-slate-500 text-xs">{item.count}件</td>
                     </tr>
                   ))}
               </tbody>
