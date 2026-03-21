@@ -317,7 +317,7 @@ export default function AnalyticsPage() {
                         </thead>
                         <tbody>
                           {rows.map((row) => {
-                            const contrib = totalDiff !== 0 ? Math.round(row.diff / Math.abs(totalDiff) * 10) / 10 : 0;
+                            const contrib = totalDiff !== 0 ? Math.round(row.diff / Math.abs(totalDiff) * 1000) / 10 : 0;
                             const absContrib = Math.abs(contrib);
                             const barW = Math.min(absContrib, 100);
                             const isPos = row.diff > 0;
