@@ -557,12 +557,11 @@ function QuarterlyView({
   onAnalysisGenerated: (a: ReportAnalysis) => void;
   year: number;
 }) {
-  const chartData = data.quarters.map((q, i) => ({
+  const chartData = data.quarters.map((q) => ({
     name: q.label,
     収入: q.income,
     支出: q.expense,
     純損益: q.netIncome,
-    fill: QUARTER_COLORS[i],
   }));
 
   return (
