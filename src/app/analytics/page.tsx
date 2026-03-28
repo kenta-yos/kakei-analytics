@@ -317,7 +317,8 @@ export default function AnalyticsPage() {
                         </thead>
                         <tbody>
                           {rows.map((row) => {
-                            const contrib = totalDiff !== 0 ? Math.round(row.diff / Math.abs(totalDiff) * 1000) / 10 : 0;
+                            const baseTot = cmpData.summary.total1;
+                            const contrib = baseTot !== 0 ? Math.round(row.diff / baseTot * 1000) / 10 : 0;
                             const absContrib = Math.abs(contrib);
                             const barW = Math.min(absContrib, 100);
                             const isPos = row.diff > 0;
@@ -330,7 +331,7 @@ export default function AnalyticsPage() {
                                   {row.diff !== 0 ? (isPos ? "+" : "") + formatCurrency(row.diff) : "±0"}
                                 </td>
                                 <td className="text-right">
-                                  {totalDiff !== 0 && row.diff !== 0 ? (
+                                  {baseTot !== 0 && row.diff !== 0 ? (
                                     <div className="flex items-center justify-end gap-2">
                                       <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden hidden sm:block">
                                         <div
