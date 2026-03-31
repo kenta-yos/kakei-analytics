@@ -295,19 +295,28 @@ async function getMonthlyInvestmentPL(year: number, month: number) {
 
   for (const [productName, assetName] of Object.entries(PRODUCT_TO_ASSET)) {
     const cur = currentVals.find(v => v.productName === productName);
+    if (!cur) continue; // 当月の評価額が未登録ならスキップ
     const prev = prevVals.find(v => v.productName === productName);
-    if (!cur && !prev) continue;
 
-    const curMarket = cur?.marketValue ?? 0;
+    const curMarket = cur.marketValue;
     const prevMarket = prev?.marketValue ?? 0;
 
-    // 当月の新規拠出 = 当月末までの累計 - 前月末までの累計
-    const [costCur, costPrev] = await Promise.all([
-      getCostBasisUpTo(assetName, year, month),
-      getCostBasisUpTo(assetName, prevMonth.y, prevMonth.m),
-    ]);
-    const contribution = costCur - costPrev;
-    const gain = curMarket - prevMarket - contribution;
+    let gain: number;
+    let contribution: number;
+    if (!prev) {
+      // 初回登録月: 運用損益 = 評価額 - 累計拠出額
+      const totalCost = await getCostBasisUpTo(assetName, year, month);
+      contribution = totalCost;
+      gain = curMarket - totalCost;
+    } else {
+      // 通常月: 運用損益 = 当月末評価額 - 前月末評価額 - 当月新規拠出額
+      const [costCur, costPrev] = await Promise.all([
+        getCostBasisUpTo(assetName, year, month),
+        getCostBasisUpTo(assetName, prevMonth.y, prevMonth.m),
+      ]);
+      contribution = costCur - costPrev;
+      gain = curMarket - prevMarket - contribution;
+    }
 
     products.push({ productName, gain, marketValue: curMarket, prevMarketValue: prevMarket, contribution });
     totalGain += gain;
