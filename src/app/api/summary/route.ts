@@ -304,10 +304,8 @@ async function getMonthlyInvestmentPL(year: number, month: number) {
     let gain: number;
     let contribution: number;
     if (!prev) {
-      // 初回登録月: 運用損益 = 評価額 - 累計拠出額
-      const totalCost = await getCostBasisUpTo(assetName, year, month);
-      contribution = totalCost;
-      gain = curMarket - totalCost;
+      // 初回登録月: 前月の評価額がないため運用損益は算出不可 → スキップ
+      continue;
     } else {
       // 通常月: 運用損益 = 当月末評価額 - 前月末評価額 - 当月新規拠出額
       const [costCur, costPrev] = await Promise.all([
