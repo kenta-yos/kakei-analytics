@@ -40,6 +40,23 @@ type QuarterRow = {
   expense: number;
 };
 
+type InvestmentProduct = {
+  productName: string;
+  marketValue: number;
+  costBasis: number;
+  unrealizedGain: number;
+  gainRate: number;
+};
+
+type InvestmentMonth = {
+  year: number;
+  month: number;
+  products: Record<string, { marketValue: number; costBasis: number }>;
+  totalMarket: number;
+  totalCost: number;
+  totalGain: number;
+};
+
 export default function PLPage() {
   const now = new Date();
   const [mode, setMode] = useState<"monthly" | "quarterly" | "yearly">("monthly");
@@ -48,23 +65,37 @@ export default function PLPage() {
   const [monthlyData, setMonthlyData] = useState<MonthlySummary[]>([]);
   const [monthDetail, setMonthDetail] = useState<MonthlySummary | null>(null);
   const [yearCategories, setYearCategories] = useState<CategorySummary | null>(null);
+  const [investProducts, setInvestProducts] = useState<InvestmentProduct[]>([]);
+  const [investHistory, setInvestHistory] = useState<InvestmentMonth[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       if (mode === "monthly") {
-        const res = await fetch(`/api/summary?year=${year}&month=${month}`);
-        const json = await res.json();
-        setMonthDetail(json.data);
+        const [sumRes, invRes] = await Promise.all([
+          fetch(`/api/summary?year=${year}&month=${month}`),
+          fetch(`/api/investment?year=${year}&month=${month}`),
+        ]);
+        const sumJson = await sumRes.json();
+        const invJson = await invRes.json();
+        setMonthDetail(sumJson.data);
         setMonthlyData([]);
         setYearCategories(null);
+        setInvestProducts(invJson.data?.products ?? []);
+        setInvestHistory([]);
       } else {
-        const res = await fetch(`/api/summary?year=${year}`);
-        const json = await res.json();
-        setMonthlyData(json.data ?? []);
-        setYearCategories(json.yearCategories ?? null);
+        const [sumRes, invRes] = await Promise.all([
+          fetch(`/api/summary?year=${year}`),
+          fetch(`/api/investment?history=true`),
+        ]);
+        const sumJson = await sumRes.json();
+        const invJson = await invRes.json();
+        setMonthlyData(sumJson.data ?? []);
+        setYearCategories(sumJson.yearCategories ?? null);
         setMonthDetail(null);
+        setInvestProducts([]);
+        setInvestHistory((invJson.data ?? []).filter((d: InvestmentMonth) => d.year === year));
       }
     } finally {
       setLoading(false);
@@ -123,11 +154,11 @@ export default function PLPage() {
       {loading ? (
         <p className="text-slate-500">読み込み中...</p>
       ) : mode === "monthly" && monthDetail ? (
-        <PeriodPL summary={monthDetail} label={`${year}年${month}月`} year={year} month={month} />
+        <PeriodPL summary={monthDetail} label={`${year}年${month}月`} year={year} month={month} investProducts={investProducts} />
       ) : mode === "quarterly" ? (
-        <QuarterlyPL year={year} quarterRows={quarterRows} yearTotal={yearTotal} />
+        <QuarterlyPL year={year} quarterRows={quarterRows} yearTotal={yearTotal} investHistory={investHistory} />
       ) : mode === "yearly" ? (
-        <YearlyPL monthlyData={monthlyData} year={year} yearTotal={yearTotal} yearCategories={yearCategories} />
+        <YearlyPL monthlyData={monthlyData} year={year} yearTotal={yearTotal} yearCategories={yearCategories} investHistory={investHistory} />
       ) : null}
     </div>
   );
@@ -295,21 +326,23 @@ function KpiCards({ income, expense, label }: { income: number; expense: number;
 }
 
 /** 月次 */
-function PeriodPL({ summary, label, year, month }: { summary: MonthlySummary; label: string; year: number; month: number }) {
+function PeriodPL({ summary, label, year, month, investProducts }: { summary: MonthlySummary; label: string; year: number; month: number; investProducts: InvestmentProduct[] }) {
   const period: DrilldownPeriod = { type: "monthly", year, month };
   return (
     <div className="space-y-4">
       <KpiCards income={summary.totalIncome} expense={summary.totalExpense} label={label} />
       {summary.categories && <CategoryBreakdown summary={summary as CategorySummary} label={label} period={period} />}
+      <InvestmentSection products={investProducts} label={label} />
     </div>
   );
 }
 
 /** 四半期 */
-function QuarterlyPL({ year, quarterRows, yearTotal }: {
+function QuarterlyPL({ year, quarterRows, yearTotal, investHistory }: {
   year: number;
   quarterRows: QuarterRow[];
   yearTotal: { income: number; expense: number };
+  investHistory: InvestmentMonth[];
 }) {
   const now = new Date();
   const currentQ = Math.ceil((now.getMonth() + 1) / 3);
@@ -394,16 +427,19 @@ function QuarterlyPL({ year, quarterRows, yearTotal }: {
           </tbody>
         </table>
       </Card>
+      <InvestmentSectionFromHistory history={investHistory} label={`${year}年Q${selectedQ}`}
+        filterMonths={[1, 2, 3].map(m => m + (selectedQ - 1) * 3)} />
     </div>
   );
 }
 
 /** 年次 */
-function YearlyPL({ monthlyData, year, yearTotal, yearCategories }: {
+function YearlyPL({ monthlyData, year, yearTotal, yearCategories, investHistory }: {
   monthlyData: MonthlySummary[];
   year: number;
   yearTotal: { income: number; expense: number };
   yearCategories: CategorySummary | null;
+  investHistory: InvestmentMonth[];
 }) {
   const net = yearTotal.income - yearTotal.expense;
   return (
@@ -449,6 +485,95 @@ function YearlyPL({ monthlyData, year, yearTotal, yearCategories }: {
           </tbody>
         </table>
       </Card>
+      <InvestmentSectionFromHistory history={investHistory} label={`${year}年`} />
     </div>
   );
+}
+
+/** 投資パフォーマンスセクション（月次: products直接渡し） */
+function InvestmentSection({ products, label }: { products: InvestmentProduct[]; label: string }) {
+  const hasData = products.some(p => p.marketValue > 0 || p.costBasis > 0);
+  if (!hasData) return null;
+
+  const totalMarket = products.reduce((s, p) => s + p.marketValue, 0);
+  const totalCost = products.reduce((s, p) => s + p.costBasis, 0);
+  const totalGain = totalMarket - totalCost;
+  const totalRate = totalCost > 0 ? Math.round(((totalMarket - totalCost) / totalCost) * 1000) / 10 : 0;
+
+  return (
+    <Card>
+      <CardTitle>{label} 投資パフォーマンス</CardTitle>
+      <p className="text-slate-500 text-xs mb-3">含み損益（評価額 - 取得原価）</p>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>商品</th>
+            <th className="text-right">取得原価</th>
+            <th className="text-right">評価額</th>
+            <th className="text-right">含み損益</th>
+            <th className="text-right">損益率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.filter(p => p.marketValue > 0 || p.costBasis > 0).map((p) => (
+            <tr key={p.productName}>
+              <td className="text-slate-300">{p.productName}</td>
+              <td className="text-right text-slate-400">{formatCurrency(p.costBasis)}</td>
+              <td className="text-right text-slate-300">{formatCurrency(p.marketValue)}</td>
+              <td className={`text-right font-medium ${p.unrealizedGain >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {formatCurrencySigned(p.unrealizedGain)}
+              </td>
+              <td className={`text-right text-sm ${p.gainRate >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {p.gainRate >= 0 ? "+" : ""}{p.gainRate}%
+              </td>
+            </tr>
+          ))}
+          {products.filter(p => p.marketValue > 0 || p.costBasis > 0).length > 1 && (
+            <tr className="font-semibold border-t border-slate-700">
+              <td className="text-white">合計</td>
+              <td className="text-right text-slate-400">{formatCurrency(totalCost)}</td>
+              <td className="text-right text-slate-300">{formatCurrency(totalMarket)}</td>
+              <td className={`text-right ${totalGain >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {formatCurrencySigned(totalGain)}
+              </td>
+              <td className={`text-right text-sm ${totalRate >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {totalRate >= 0 ? "+" : ""}{totalRate}%
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+/** 投資パフォーマンスセクション（四半期・年次: historyから期末スナップショットを取得） */
+function InvestmentSectionFromHistory({ history, label, filterMonths }: {
+  history: InvestmentMonth[];
+  label: string;
+  filterMonths?: number[];
+}) {
+  if (history.length === 0) return null;
+
+  // filterMonthsが指定されていれば絞り込み、末月のデータを使用
+  const filtered = filterMonths ? history.filter(h => filterMonths.includes(h.month)) : history;
+  if (filtered.length === 0) return null;
+
+  // 期末（最後の月）のスナップショットを使用
+  const latest = filtered[filtered.length - 1];
+  const productNames = Object.keys(latest.products);
+
+  const products: InvestmentProduct[] = productNames.map(name => {
+    const p = latest.products[name];
+    const gain = p.marketValue - p.costBasis;
+    return {
+      productName: name,
+      marketValue: p.marketValue,
+      costBasis: p.costBasis,
+      unrealizedGain: gain,
+      gainRate: p.costBasis > 0 ? Math.round((gain / p.costBasis) * 1000) / 10 : 0,
+    };
+  });
+
+  return <InvestmentSection products={products} label={label} />;
 }
