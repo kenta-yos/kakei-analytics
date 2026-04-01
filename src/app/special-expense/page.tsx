@@ -22,10 +22,24 @@ type MonthSummary = {
   actualTotal: number;
 };
 
+type YearGridItem = {
+  itemName: string;
+  months: Record<number, number>;
+};
+
+type BudgetMonth = {
+  month: number;
+  allocation: number;
+  carryover: number;
+  totalBudget: number;
+};
+
 type ApiData = {
   planned: { id: number; itemName: string; plannedAmount: number; memo: string | null }[];
   actuals: ActualItem[];
   yearSummary: MonthSummary[];
+  yearGrid: YearGridItem[];
+  budgetTrajectory: BudgetMonth[];
 };
 
 export default function SpecialExpensePage() {
@@ -35,6 +49,8 @@ export default function SpecialExpensePage() {
   const [planned, setPlanned] = useState<PlannedItem[]>([]);
   const [actuals, setActuals] = useState<ActualItem[]>([]);
   const [yearSummary, setYearSummary] = useState<MonthSummary[]>([]);
+  const [yearGrid, setYearGrid] = useState<YearGridItem[]>([]);
+  const [budgetTrajectory, setBudgetTrajectory] = useState<BudgetMonth[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -45,7 +61,7 @@ export default function SpecialExpensePage() {
     try {
       const res = await fetch(`/api/special-expense?year=${year}&month=${month}`);
       const json = await res.json();
-      const data: ApiData = json.data ?? { planned: [], actuals: [], yearSummary: [] };
+      const data: ApiData = json.data ?? { planned: [], actuals: [], yearSummary: [], yearGrid: [], budgetTrajectory: [] };
 
       setPlanned(
         data.planned.length > 0
@@ -54,6 +70,8 @@ export default function SpecialExpensePage() {
       );
       setActuals(data.actuals);
       setYearSummary(data.yearSummary);
+      setYearGrid(data.yearGrid ?? []);
+      setBudgetTrajectory(data.budgetTrajectory ?? []);
     } finally {
       setLoading(false);
     }
@@ -75,6 +93,36 @@ export default function SpecialExpensePage() {
 
   function removeRow(idx: number) {
     setPlanned((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  // 毎月繰り返しアイテムを一括コピー
+  function copyToAllMonths() {
+    if (planned.length === 0) return;
+    const items = planned.filter((p) => p.itemName.trim() !== "");
+    if (items.length === 0) return;
+    if (!confirm(`現在の${month}月の${items.length}件を全月（1〜12月）にコピーします。既存データは上書きされます。よろしいですか？`)) return;
+
+    setSaving(true);
+    Promise.all(
+      Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
+        fetch("/api/special-expense", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            year,
+            month: m,
+            items: items.map((p) => ({
+              itemName: p.itemName,
+              plannedAmount: p.plannedAmount,
+              memo: p.memo || undefined,
+            })),
+          }),
+        })
+      )
+    ).then(() => {
+      setSaved(true);
+      loadData();
+    }).finally(() => setSaving(false));
   }
 
   async function save() {
@@ -159,17 +207,37 @@ export default function SpecialExpensePage() {
         <p className="text-slate-500 text-sm py-8 text-center">読み込み中...</p>
       ) : (
         <>
+          {/* 年間一覧グリッド */}
+          {yearGrid.length > 0 && (
+            <YearGridSection
+              yearGrid={yearGrid}
+              budgetTrajectory={budgetTrajectory}
+              yearSummary={yearSummary}
+              year={year}
+              selectedMonth={month}
+              onMonthClick={setMonth}
+            />
+          )}
+
           {/* 予測セクション */}
           <Card className="mb-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <CardTitle>{year}年{month}月 予測</CardTitle>
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center flex-wrap">
                 {saved && <span className="text-green-400 text-xs">保存しました</span>}
                 <button
                   onClick={addRow}
                   className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition"
                 >
                   + 行追加
+                </button>
+                <button
+                  onClick={copyToAllMonths}
+                  disabled={saving || planned.length === 0}
+                  className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-slate-300 rounded-lg transition"
+                  title="現在の月の内容を全月にコピー"
+                >
+                  全月にコピー
                 </button>
                 <button
                   onClick={save}
@@ -374,5 +442,201 @@ export default function SpecialExpensePage() {
         </>
       )}
     </div>
+  );
+}
+
+/** 年間一覧グリッド */
+function YearGridSection({
+  yearGrid,
+  budgetTrajectory,
+  yearSummary,
+  year,
+  selectedMonth,
+  onMonthClick,
+}: {
+  yearGrid: YearGridItem[];
+  budgetTrajectory: BudgetMonth[];
+  yearSummary: MonthSummary[];
+  year: number;
+  selectedMonth: number;
+  onMonthClick: (m: number) => void;
+}) {
+  const now = new Date();
+  const currentYearMonth = now.getFullYear() * 100 + (now.getMonth() + 1);
+  const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+
+  // 残額計算: 各月の予算計 - 支出（過去は実績、未来は予測）
+  const remaining = MONTHS.map((m) => {
+    const bt = budgetTrajectory[m - 1];
+    const ys = yearSummary[m - 1];
+    const isPast = year * 100 + m <= currentYearMonth;
+    const spending = isPast ? (ys?.actualTotal ?? 0) : (ys?.plannedTotal ?? 0);
+    return bt.totalBudget - spending;
+  });
+
+  const fmt = (v: number) => formatCurrency(v);
+  const hasBudget = budgetTrajectory.some((b) => b.totalBudget !== 0 || b.allocation !== 0);
+
+  return (
+    <Card className="mb-4">
+      <CardTitle>{year}年 年間一覧</CardTitle>
+      <div className="overflow-x-auto -mx-5 px-5">
+        <table className="w-max min-w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b border-slate-700">
+              <th className="sticky left-0 z-10 bg-slate-900 text-left text-slate-500 font-medium px-2 py-1.5 min-w-[120px]">
+                項目
+              </th>
+              {MONTHS.map((m) => (
+                <th
+                  key={m}
+                  onClick={() => onMonthClick(m)}
+                  className={`text-right text-slate-500 font-medium px-2 py-1.5 min-w-[72px] cursor-pointer hover:text-slate-300 transition ${
+                    m === selectedMonth ? "bg-blue-900/30 text-blue-400" : ""
+                  }`}
+                >
+                  {m}月
+                </th>
+              ))}
+              <th className="text-right text-slate-500 font-medium px-2 py-1.5 min-w-[80px] border-l border-slate-700">
+                年合計
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* 予算セクション */}
+            {hasBudget && (
+              <>
+                <tr className="border-b border-slate-800">
+                  <td className="sticky left-0 z-10 bg-slate-900 text-slate-500 text-xs px-2 py-1">追加</td>
+                  {MONTHS.map((m) => {
+                    const v = budgetTrajectory[m - 1].allocation;
+                    return (
+                      <td key={m} className={`text-right px-2 py-1 tabular-nums ${
+                        m === selectedMonth ? "bg-blue-900/30" : ""
+                      } ${v > 0 ? "text-green-400" : "text-slate-700"}`}>
+                        {v > 0 ? fmt(v) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="text-right px-2 py-1 tabular-nums text-green-400 border-l border-slate-700">
+                    {fmt(budgetTrajectory.reduce((s, b) => s + b.allocation, 0))}
+                  </td>
+                </tr>
+                <tr className="border-b border-slate-800">
+                  <td className="sticky left-0 z-10 bg-slate-900 text-slate-500 text-xs px-2 py-1">前月残</td>
+                  {MONTHS.map((m) => {
+                    const v = budgetTrajectory[m - 1].carryover;
+                    return (
+                      <td key={m} className={`text-right px-2 py-1 tabular-nums ${
+                        m === selectedMonth ? "bg-blue-900/30" : ""
+                      } ${v > 0 ? "text-blue-400" : v < 0 ? "text-red-400" : "text-slate-700"}`}>
+                        {v !== 0 ? fmt(v) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="text-right px-2 py-1 tabular-nums text-slate-600 border-l border-slate-700">—</td>
+                </tr>
+                <tr className="border-b-2 border-slate-600">
+                  <td className="sticky left-0 z-10 bg-slate-900 text-slate-400 text-xs font-semibold px-2 py-1">予算計</td>
+                  {MONTHS.map((m) => {
+                    const v = budgetTrajectory[m - 1].totalBudget;
+                    return (
+                      <td key={m} className={`text-right px-2 py-1 tabular-nums font-medium ${
+                        m === selectedMonth ? "bg-blue-900/30" : ""
+                      } ${v > 0 ? "text-slate-300" : v < 0 ? "text-red-400" : "text-slate-700"}`}>
+                        {v !== 0 ? fmt(v) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="text-right px-2 py-1 tabular-nums font-medium text-slate-300 border-l border-slate-700">
+                    {fmt(budgetTrajectory.reduce((s, b) => s + b.totalBudget, 0))}
+                  </td>
+                </tr>
+              </>
+            )}
+
+            {/* 項目行 */}
+            {yearGrid.map((item) => {
+              const yearTotal = Object.values(item.months).reduce((s, v) => s + v, 0);
+              return (
+                <tr key={item.itemName} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                  <td className="sticky left-0 z-10 bg-slate-900 text-slate-300 px-2 py-1.5 whitespace-nowrap">
+                    {item.itemName}
+                  </td>
+                  {MONTHS.map((m) => {
+                    const amount = item.months[m];
+                    const isPast = year * 100 + m <= currentYearMonth;
+                    return (
+                      <td key={m} className={`text-right px-2 py-1.5 tabular-nums ${
+                        m === selectedMonth ? "bg-blue-900/30" : ""
+                      } ${amount ? (isPast ? "text-red-300" : "text-slate-400") : "text-slate-700"}`}>
+                        {amount ? fmt(amount) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="text-right px-2 py-1.5 tabular-nums font-semibold text-white border-l border-slate-700">
+                    {fmt(yearTotal)}
+                  </td>
+                </tr>
+              );
+            })}
+
+            {/* サマリー行 */}
+            <tr className="border-t-2 border-slate-600">
+              <td className="sticky left-0 z-10 bg-slate-900 text-slate-400 font-semibold text-xs px-2 py-1.5">予測合計</td>
+              {MONTHS.map((m) => {
+                const v = yearSummary[m - 1]?.plannedTotal ?? 0;
+                return (
+                  <td key={m} className={`text-right px-2 py-1.5 tabular-nums font-medium ${
+                    m === selectedMonth ? "bg-blue-900/30" : ""
+                  } ${v > 0 ? "text-slate-300" : "text-slate-700"}`}>
+                    {v > 0 ? fmt(v) : "—"}
+                  </td>
+                );
+              })}
+              <td className="text-right px-2 py-1.5 tabular-nums font-semibold text-white border-l border-slate-700">
+                {fmt(yearSummary.reduce((s, m) => s + m.plannedTotal, 0))}
+              </td>
+            </tr>
+            <tr className="border-b border-slate-800">
+              <td className="sticky left-0 z-10 bg-slate-900 text-slate-400 font-semibold text-xs px-2 py-1.5">実績合計</td>
+              {MONTHS.map((m) => {
+                const v = yearSummary[m - 1]?.actualTotal ?? 0;
+                return (
+                  <td key={m} className={`text-right px-2 py-1.5 tabular-nums font-medium ${
+                    m === selectedMonth ? "bg-blue-900/30" : ""
+                  } ${v > 0 ? "text-red-400" : "text-slate-700"}`}>
+                    {v > 0 ? fmt(v) : "—"}
+                  </td>
+                );
+              })}
+              <td className="text-right px-2 py-1.5 tabular-nums font-semibold text-red-400 border-l border-slate-700">
+                {fmt(yearSummary.reduce((s, m) => s + m.actualTotal, 0))}
+              </td>
+            </tr>
+            {hasBudget && (
+              <tr>
+                <td className="sticky left-0 z-10 bg-slate-900 text-slate-400 font-semibold text-xs px-2 py-1.5">残額</td>
+                {MONTHS.map((m) => {
+                  const v = remaining[m - 1];
+                  const bt = budgetTrajectory[m - 1].totalBudget;
+                  return (
+                    <td key={m} className={`text-right px-2 py-1.5 tabular-nums font-bold ${
+                      m === selectedMonth ? "bg-blue-900/30" : ""
+                    } ${bt === 0 && v === 0 ? "text-slate-700" : v >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {bt === 0 && v === 0 ? "—" : fmt(v)}
+                    </td>
+                  );
+                })}
+                <td className="text-right px-2 py-1.5 tabular-nums font-bold border-l border-slate-700 text-slate-600">
+                  —
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

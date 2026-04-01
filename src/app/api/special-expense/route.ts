@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { specialExpensesB, transactions } from "@/lib/schema";
+import { specialExpensesB, transactions, budgets } from "@/lib/schema";
 import { and, eq, sql } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
@@ -107,11 +107,62 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // 年間グリッド用: 全月の予測アイテム
+    const yearAllPlanned = await db
+      .select({
+        itemName: specialExpensesB.itemName,
+        month: specialExpensesB.month,
+        plannedAmount: specialExpensesB.plannedAmount,
+      })
+      .from(specialExpensesB)
+      .where(eq(specialExpensesB.year, year))
+      .orderBy(specialExpensesB.itemName, specialExpensesB.month);
+
+    const itemMap = new Map<string, Record<number, number>>();
+    for (const row of yearAllPlanned) {
+      if (!itemMap.has(row.itemName)) itemMap.set(row.itemName, {});
+      itemMap.get(row.itemName)![row.month] = Number(row.plannedAmount);
+    }
+    const yearGrid = Array.from(itemMap.entries()).map(([itemName, months]) => ({
+      itemName,
+      months,
+    }));
+
+    // 予算推移: budgetsテーブルから特別経費Bの月別データ
+    const budgetRows = await db
+      .select({
+        month: budgets.month,
+        allocation: budgets.allocation,
+        carryover: budgets.carryover,
+        totalBudget: budgets.totalBudget,
+      })
+      .from(budgets)
+      .where(
+        and(
+          eq(budgets.year, year),
+          eq(budgets.categoryName, "特別経費B")
+        )
+      )
+      .orderBy(budgets.month);
+
+    const budgetTrajectory = Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const b = budgetRows.find((r) => r.month === m);
+      return {
+        month: m,
+        allocation: Number(b?.allocation ?? 0),
+        carryover: Number(b?.carryover ?? 0),
+        totalBudget: Number(b?.totalBudget ?? 0),
+      };
+    });
+
     return NextResponse.json({
       data: {
         planned,
         actuals: actualList,
         yearSummary,
+        yearGrid,
+        budgetTrajectory,
       },
     });
   } catch (e) {
