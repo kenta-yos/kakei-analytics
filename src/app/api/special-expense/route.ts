@@ -174,6 +174,42 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // 単一項目を複数月にコピー
+    if (body.action === "copy-item") {
+      const { year, itemName, plannedAmount, months } = body as {
+        action: string;
+        year: number;
+        itemName: string;
+        plannedAmount: number;
+        months: number[];
+      };
+
+      for (const m of months) {
+        // その月にこの項目が既にあれば削除
+        await db
+          .delete(specialExpensesB)
+          .where(
+            and(
+              eq(specialExpensesB.year, year),
+              eq(specialExpensesB.month, m),
+              eq(specialExpensesB.itemName, itemName)
+            )
+          );
+        // 挿入
+        await db.insert(specialExpensesB).values({
+          year,
+          month: m,
+          itemName,
+          plannedAmount,
+          memo: null,
+        });
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
+    // 従来: 月単位で全件置換
     const { year, month, items } = body as {
       year: number;
       month: number;
@@ -184,7 +220,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "year と month が必要です" }, { status: 400 });
     }
 
-    // その月のデータを DELETE → INSERT で置き換え
     await db
       .delete(specialExpensesB)
       .where(

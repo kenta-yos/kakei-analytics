@@ -95,34 +95,30 @@ export default function SpecialExpensePage() {
     setPlanned((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  // 毎月繰り返しアイテムを一括コピー
-  function copyToAllMonths() {
-    if (planned.length === 0) return;
-    const items = planned.filter((p) => p.itemName.trim() !== "");
-    if (items.length === 0) return;
-    if (!confirm(`現在の${month}月の${items.length}件を全月（1〜12月）にコピーします。既存データは上書きされます。よろしいですか？`)) return;
+  // 単一項目を全月にコピー
+  async function copyItemToAllMonths(idx: number) {
+    const item = planned[idx];
+    if (!item || !item.itemName.trim()) return;
+    if (!confirm(`「${item.itemName}」(${formatCurrency(item.plannedAmount)}) を全月（1〜12月）にコピーします。よろしいですか？`)) return;
 
     setSaving(true);
-    Promise.all(
-      Array.from({ length: 12 }, (_, i) => i + 1).map((m) =>
-        fetch("/api/special-expense", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            year,
-            month: m,
-            items: items.map((p) => ({
-              itemName: p.itemName,
-              plannedAmount: p.plannedAmount,
-              memo: p.memo || undefined,
-            })),
-          }),
-        })
-      )
-    ).then(() => {
+    try {
+      await fetch("/api/special-expense", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "copy-item",
+          year,
+          itemName: item.itemName,
+          plannedAmount: item.plannedAmount,
+          months: Array.from({ length: 12 }, (_, i) => i + 1),
+        }),
+      });
       setSaved(true);
-      loadData();
-    }).finally(() => setSaving(false));
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function save() {
@@ -232,14 +228,6 @@ export default function SpecialExpensePage() {
                   + 行追加
                 </button>
                 <button
-                  onClick={copyToAllMonths}
-                  disabled={saving || planned.length === 0}
-                  className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-slate-300 rounded-lg transition"
-                  title="現在の月の内容を全月にコピー"
-                >
-                  全月にコピー
-                </button>
-                <button
                   onClick={save}
                   disabled={saving}
                   className="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white rounded-lg transition font-semibold"
@@ -261,7 +249,7 @@ export default function SpecialExpensePage() {
                       <th className="text-left">項目名</th>
                       <th className="text-right">金額</th>
                       <th className="text-left hidden sm:table-cell">メモ</th>
-                      <th className="w-10" />
+                      <th className="w-20" />
                     </tr>
                   </thead>
                   <tbody>
@@ -296,7 +284,15 @@ export default function SpecialExpensePage() {
                             className="w-full bg-transparent text-slate-400 text-sm px-2 py-1 rounded border border-transparent focus:border-slate-600 outline-none"
                           />
                         </td>
-                        <td>
+                        <td className="whitespace-nowrap">
+                          <button
+                            onClick={() => copyItemToAllMonths(idx)}
+                            disabled={saving || !row.itemName.trim()}
+                            className="text-slate-600 hover:text-blue-400 disabled:opacity-30 transition p-1 text-xs"
+                            title={`「${row.itemName}」を全月にコピー`}
+                          >
+                            全月
+                          </button>
                           <button
                             onClick={() => removeRow(idx)}
                             className="text-slate-500 hover:text-red-400 transition p-1"
