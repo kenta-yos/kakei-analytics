@@ -95,11 +95,12 @@ export default function SpecialExpensePage() {
     setPlanned((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  // 単一項目を全月にコピー
-  async function copyItemToAllMonths(idx: number) {
+  // 単一項目を当月〜12月にコピー
+  async function copyItemToRemainingMonths(idx: number) {
     const item = planned[idx];
     if (!item || !item.itemName.trim()) return;
-    if (!confirm(`「${item.itemName}」(${formatCurrency(item.plannedAmount)}) を全月（1〜12月）にコピーします。よろしいですか？`)) return;
+    const targetMonths = Array.from({ length: 12 - month + 1 }, (_, i) => month + i);
+    if (!confirm(`「${item.itemName}」(${formatCurrency(item.plannedAmount)}) を${month}〜12月にコピーします。よろしいですか？`)) return;
 
     setSaving(true);
     try {
@@ -111,7 +112,7 @@ export default function SpecialExpensePage() {
           year,
           itemName: item.itemName,
           plannedAmount: item.plannedAmount,
-          months: Array.from({ length: 12 }, (_, i) => i + 1),
+          months: targetMonths,
         }),
       });
       setSaved(true);
@@ -286,12 +287,12 @@ export default function SpecialExpensePage() {
                         </td>
                         <td className="whitespace-nowrap">
                           <button
-                            onClick={() => copyItemToAllMonths(idx)}
+                            onClick={() => copyItemToRemainingMonths(idx)}
                             disabled={saving || !row.itemName.trim()}
                             className="text-slate-600 hover:text-blue-400 disabled:opacity-30 transition p-1 text-xs"
-                            title={`「${row.itemName}」を全月にコピー`}
+                            title={`「${row.itemName}」を${month}〜12月にコピー`}
                           >
-                            全月
+                            {month}〜12月
                           </button>
                           <button
                             onClick={() => removeRow(idx)}
