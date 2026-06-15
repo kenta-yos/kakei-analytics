@@ -234,14 +234,14 @@ function PLTrendChart({ data, selectedKey, onSelect, showInvestment }: {
             formatter={(v: number, name: string) => [formatCurrency(v), name]}
           />
           <ReferenceLine y={0} stroke="#475569" />
-          <Bar dataKey="operating" name="営業損益" stackId="a" fill="#3b82f6"
+          <Bar dataKey="operating" name="営業損益" fill="#3b82f6"
             onClick={(d: ChartPoint) => onSelect(d.key)} cursor="pointer"
-            opacity={0.7}
+            opacity={0.8} radius={[3, 3, 0, 0]}
           />
           {showInvestment && (
-            <Bar dataKey="investment" name="投資運用損益" stackId="a" fill="#a855f7"
+            <Bar dataKey="investment" name="投資運用損益" fill="#a855f7"
               onClick={(d: ChartPoint) => onSelect(d.key)} cursor="pointer"
-              opacity={0.7} radius={[3, 3, 0, 0]}
+              opacity={0.8} radius={[3, 3, 0, 0]}
             />
           )}
           <Line type="monotone" dataKey="total" name="総合損益" stroke="#22c55e" strokeWidth={2}
