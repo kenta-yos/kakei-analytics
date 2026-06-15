@@ -565,8 +565,7 @@ export default function BudgetPage() {
                         <td className="px-3 py-2 text-right">
                           <input
                             type="text"
-                            inputMode="numeric"
-                            pattern="-?[0-9]*"
+                            inputMode="text"
                             value={edit.allocation}
                             onChange={(e) => {
                               const v = e.target.value;
