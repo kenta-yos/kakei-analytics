@@ -564,9 +564,19 @@ export default function BudgetPage() {
                         </td>
                         <td className="px-3 py-2 text-right">
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="-?[0-9]*"
                             value={edit.allocation}
-                            onChange={(e) => update(cat, "allocation", Number(e.target.value))}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "" || v === "-") update(cat, "allocation", v as unknown as number);
+                              else if (/^-?\d+$/.test(v)) update(cat, "allocation", Number(v));
+                            }}
+                            onBlur={(e) => {
+                              const n = parseInt(e.target.value, 10);
+                              update(cat, "allocation", isNaN(n) ? 0 : n);
+                            }}
                             onFocus={(e) => e.target.select()}
                             style={{ fontSize: "16px" }}
                             className="w-24 bg-slate-800 text-white text-right px-2 py-1 rounded border border-slate-700 focus:border-blue-500 outline-none tabular-nums"

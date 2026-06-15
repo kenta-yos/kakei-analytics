@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
 import CategorySelect from "@/components/ui/CategorySelect";
@@ -12,14 +12,23 @@ export default function TransactionsPage() {
   const [type, setType] = useState("");
   const [category, setCategory] = useState("");
   const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [amount, setAmount] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const LIMIT = 50;
+  const fetchIdRef = useRef(0);
+
+  // キーワードのデバウンス（300ms）
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedKeyword(keyword), 300);
+    return () => clearTimeout(timer);
+  }, [keyword]);
 
   const fetchData = useCallback(async () => {
+    const id = ++fetchIdRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
@@ -27,18 +36,20 @@ export default function TransactionsPage() {
       if (month) params.set("month", String(month));
       if (type) params.set("type", type);
       if (category) params.set("category", category);
-      if (keyword.trim()) params.set("keyword", keyword.trim());
+      if (debouncedKeyword.trim()) params.set("keyword", debouncedKeyword.trim());
       if (amount.trim()) params.set("amount", amount.trim());
       const res = await fetch(`/api/transactions?${params}`);
       const json = await res.json();
+      // 古いリクエストの結果は無視
+      if (id !== fetchIdRef.current) return;
       setData(json.data ?? []);
       setTotal(json.total ?? 0);
     } finally {
-      setLoading(false);
+      if (id === fetchIdRef.current) setLoading(false);
     }
-  }, [year, month, type, category, keyword, amount, page]);
+  }, [year, month, type, category, debouncedKeyword, amount, page]);
 
-  useEffect(() => { setPage(1); }, [year, month, type, category, keyword, amount]);
+  useEffect(() => { setPage(1); }, [year, month, type, category, debouncedKeyword, amount]);
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const totalPages = Math.ceil(total / LIMIT);
