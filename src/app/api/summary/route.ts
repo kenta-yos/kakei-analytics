@@ -47,14 +47,19 @@ export async function GET(req: NextRequest) {
     }
 
     if (year) {
-      // 年次の月別一覧 + カテゴリ別年間集計 + 年間投資損益
+      // 年次の月別一覧 + カテゴリ別年間集計 + 年間投資損益 + 月別投資損益
       const months = Array.from({ length: 12 }, (_, i) => i + 1);
-      const [data, yearCategories, investPL] = await Promise.all([
+      const [data, yearCategories, investPL, monthlyInvestResults] = await Promise.all([
         getYearlyMonthlyBreakdown(year),
         getYearlyCategoryBreakdown(year),
         getInvestmentPLForMonths(year, months),
+        Promise.all(months.map(m => getMonthlyInvestmentPL(year, m))),
       ]);
-      return NextResponse.json({ data, yearCategories, investmentPL: investPL });
+      const monthlyInvestmentPL = monthlyInvestResults.map((r, i) => ({
+        month: i + 1,
+        totalGain: r.totalGain,
+      }));
+      return NextResponse.json({ data, yearCategories, investmentPL: investPL, monthlyInvestmentPL });
     }
 
     // デフォルト: 全期間の年次サマリー

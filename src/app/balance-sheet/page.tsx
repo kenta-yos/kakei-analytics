@@ -1,8 +1,12 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/utils";
 import type { AssetSnapshot } from "@/lib/schema";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip,
+  CartesianGrid, ResponsiveContainer, ReferenceLine, Cell,
+} from "recharts";
 
 type GroupedAssets = {
   bank: AssetSnapshot[];
@@ -35,6 +39,7 @@ export default function BalanceSheetPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [assets, setAssets] = useState<AssetSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
+  const [chartData, setChartData] = useState<{ key: string; label: string; netAssets: number }[]>([]);
 
   // 実際に使う月を計算
   const effectiveMonth = mode === "yearly" ? 12 : mode === "quarterly" ? Q_MONTH[quarter] : month;
@@ -50,7 +55,31 @@ export default function BalanceSheetPage() {
     }
   }, [year, effectiveMonth]);
 
+  // チャートデータ取得
+  const fetchChartData = useCallback(async () => {
+    const periods: { key: string; label: string; y: number; m: number }[] = [];
+    if (mode === "monthly") {
+      for (let m = 1; m <= 12; m++) periods.push({ key: String(m), label: `${m}月`, y: year, m });
+    } else if (mode === "quarterly") {
+      for (let q = 1; q <= 4; q++) periods.push({ key: String(q), label: `Q${q}`, y: year, m: Q_MONTH[q] });
+    } else {
+      for (let y = 2019; y <= new Date().getFullYear(); y++) periods.push({ key: String(y), label: String(y), y, m: 12 });
+    }
+    const results = await Promise.all(
+      periods.map(async (p) => {
+        const res = await fetch(`/api/analytics?type=asset&year=${p.y}&month=${p.m}`);
+        const json = await res.json();
+        const snapshots = (json.data ?? []) as AssetSnapshot[];
+        const totalA = snapshots.filter(a => a.closingBalance > 0).reduce((s, a) => s + a.closingBalance, 0);
+        const totalL = snapshots.filter(a => a.closingBalance < 0).reduce((s, a) => s + Math.abs(a.closingBalance), 0);
+        return { key: p.key, label: p.label, netAssets: totalA - totalL };
+      })
+    );
+    setChartData(results);
+  }, [mode, year]);
+
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchChartData(); }, [fetchChartData]);
 
   const grouped = assets.reduce<GroupedAssets>((acc, a) => {
     const key = a.assetType as keyof GroupedAssets;
@@ -137,6 +166,39 @@ export default function BalanceSheetPage() {
           </p>
         </Card>
       </div>
+
+      {/* 純資産推移チャート */}
+      {chartData.length > 0 && (
+        <Card className="mb-6">
+          <CardTitle>純資産推移</CardTitle>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
+              <Tooltip
+                contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+                formatter={(v: number) => [formatCurrency(v), "純資産"]}
+              />
+              <ReferenceLine y={0} stroke="#475569" />
+              <Bar dataKey="netAssets" name="純資産" cursor="pointer"
+                onClick={(d: { key: string }) => {
+                  if (mode === "monthly") setMonth(Number(d.key));
+                  else if (mode === "quarterly") setQuarter(Number(d.key));
+                  else setYear(Number(d.key));
+                }}>
+                {chartData.map((d) => {
+                  const selected = mode === "monthly" ? String(month) : mode === "quarterly" ? String(quarter) : String(year);
+                  return (
+                    <Cell key={d.key} fill={d.netAssets >= 0 ? "#22c55e" : "#ef4444"}
+                      opacity={d.key === selected ? 1 : 0.5} />
+                  );
+                })}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
 
       {loading ? (
         <p className="text-slate-500">読み込み中...</p>

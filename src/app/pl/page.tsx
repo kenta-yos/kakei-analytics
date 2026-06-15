@@ -2,6 +2,10 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { formatCurrency, formatCurrencySigned } from "@/lib/utils";
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
+  CartesianGrid, ResponsiveContainer, ReferenceLine,
+} from "recharts";
 
 type Transaction = {
   id: number;
@@ -45,6 +49,10 @@ type InvestmentPL = {
   totalGain: number;
 };
 
+type MonthlyInvestPLItem = { month: number; totalGain: number };
+
+type ChartPoint = { key: string; label: string; operating: number; investment: number; total: number };
+
 export default function PLPage() {
   const now = new Date();
   const [mode, setMode] = useState<"monthly" | "quarterly" | "yearly">("monthly");
@@ -54,25 +62,47 @@ export default function PLPage() {
   const [monthDetail, setMonthDetail] = useState<MonthlySummary | null>(null);
   const [yearCategories, setYearCategories] = useState<CategorySummary | null>(null);
   const [investPL, setInvestPL] = useState<InvestmentPL | null>(null);
+  const [monthlyInvestPL, setMonthlyInvestPL] = useState<MonthlyInvestPLItem[]>([]);
+  const [yearlySummaries, setYearlySummaries] = useState<{ year: number; totalIncome: number; totalExpense: number; netIncome: number }[]>([]);
+  const [selectedQ, setSelectedQ] = useState(Math.ceil((now.getMonth() + 1) / 3));
   const [loading, setLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       if (mode === "monthly") {
-        const res = await fetch(`/api/summary?year=${year}&month=${month}`);
-        const json = await res.json();
-        setMonthDetail(json.data);
-        setMonthlyData([]);
+        // Fetch both month detail and yearly data (for chart)
+        const [monthRes, yearRes] = await Promise.all([
+          fetch(`/api/summary?year=${year}&month=${month}`),
+          fetch(`/api/summary?year=${year}`),
+        ]);
+        const [monthJson, yearJson] = await Promise.all([monthRes.json(), yearRes.json()]);
+        setMonthDetail(monthJson.data);
+        setInvestPL(monthJson.investmentPL ?? null);
+        setMonthlyData(yearJson.data ?? []);
         setYearCategories(null);
-        setInvestPL(json.investmentPL ?? null);
-      } else {
+        setMonthlyInvestPL(yearJson.monthlyInvestmentPL ?? []);
+      } else if (mode === "quarterly") {
         const res = await fetch(`/api/summary?year=${year}`);
         const json = await res.json();
         setMonthlyData(json.data ?? []);
         setYearCategories(json.yearCategories ?? null);
         setMonthDetail(null);
         setInvestPL(json.investmentPL ?? null);
+        setMonthlyInvestPL(json.monthlyInvestmentPL ?? []);
+      } else {
+        // Yearly: fetch current year detail + all-years summary
+        const [yearRes, allRes] = await Promise.all([
+          fetch(`/api/summary?year=${year}`),
+          fetch(`/api/summary`),
+        ]);
+        const [yearJson, allJson] = await Promise.all([yearRes.json(), allRes.json()]);
+        setMonthlyData(yearJson.data ?? []);
+        setYearCategories(yearJson.yearCategories ?? null);
+        setMonthDetail(null);
+        setInvestPL(yearJson.investmentPL ?? null);
+        setMonthlyInvestPL(yearJson.monthlyInvestmentPL ?? []);
+        setYearlySummaries(allJson.data ?? []);
       }
     } finally {
       setLoading(false);
@@ -94,6 +124,37 @@ export default function PLPage() {
       expense: qMonths.reduce((s, d) => s + d.totalExpense, 0),
     };
   });
+
+  // Chart data based on mode
+  const chartData: ChartPoint[] = useMemo(() => {
+    if (mode === "monthly") {
+      return monthlyData.map((d) => {
+        const op = d.totalIncome - d.totalExpense;
+        const inv = monthlyInvestPL.find(m => m.month === d.month)?.totalGain ?? 0;
+        return { key: String(d.month), label: `${d.month}月`, operating: op, investment: inv, total: op + inv };
+      });
+    }
+    if (mode === "quarterly") {
+      return [1, 2, 3, 4].map((q) => {
+        const qm = monthlyData.filter(d => Math.ceil(d.month / 3) === q);
+        const op = qm.reduce((s, d) => s + d.totalIncome - d.totalExpense, 0);
+        const inv = monthlyInvestPL.filter(d => Math.ceil(d.month / 3) === q).reduce((s, d) => s + d.totalGain, 0);
+        return { key: String(q), label: `Q${q}`, operating: op, investment: inv, total: op + inv };
+      });
+    }
+    // Yearly: operating only
+    return yearlySummaries.map((d) => ({
+      key: String(d.year), label: `${d.year}`, operating: d.netIncome, investment: 0, total: d.netIncome,
+    }));
+  }, [mode, monthlyData, monthlyInvestPL, yearlySummaries]);
+
+  const selectedKey = mode === "monthly" ? String(month) : mode === "quarterly" ? String(selectedQ) : String(year);
+
+  function handleChartClick(key: string) {
+    if (mode === "monthly") setMonth(Number(key));
+    else if (mode === "quarterly") setSelectedQ(Number(key));
+    else setYear(Number(key));
+  }
 
   return (
     <div className="p-4 sm:p-6">
@@ -128,16 +189,67 @@ export default function PLPage() {
         </div>
       </div>
 
+      {/* 損益推移チャート */}
+      {!loading && chartData.length > 0 && (
+        <PLTrendChart data={chartData} selectedKey={selectedKey} onSelect={handleChartClick} showInvestment={mode !== "yearly"} />
+      )}
+
       {loading ? (
         <p className="text-slate-500">読み込み中...</p>
       ) : mode === "monthly" && monthDetail ? (
         <PeriodPL summary={monthDetail} label={`${year}年${month}月`} year={year} month={month} investPL={investPL} />
       ) : mode === "quarterly" ? (
-        <QuarterlyPL year={year} quarterRows={quarterRows} yearTotal={yearTotal} investPL={investPL} />
+        <QuarterlyPL year={year} quarterRows={quarterRows} yearTotal={yearTotal} investPL={investPL}
+          selectedQ={selectedQ} setSelectedQ={setSelectedQ} />
       ) : mode === "yearly" ? (
         <YearlyPL monthlyData={monthlyData} year={year} yearTotal={yearTotal} yearCategories={yearCategories} investPL={investPL} />
       ) : null}
     </div>
+  );
+}
+
+/** 損益推移チャート */
+function PLTrendChart({ data, selectedKey, onSelect, showInvestment }: {
+  data: ChartPoint[];
+  selectedKey: string;
+  onSelect: (key: string) => void;
+  showInvestment: boolean;
+}) {
+  return (
+    <Card className="mb-4">
+      <CardTitle>損益推移</CardTitle>
+      <div className="flex gap-4 mb-2 text-xs text-slate-500">
+        <span><span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1" />営業損益</span>
+        {showInvestment && <span><span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-1" />投資運用損益</span>}
+        <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />総合損益</span>
+      </div>
+      <ResponsiveContainer width="100%" height={240}>
+        <ComposedChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} />
+          <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
+          <Tooltip
+            contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+            labelStyle={{ color: "#94a3b8" }}
+            formatter={(v: number, name: string) => [formatCurrency(v), name]}
+          />
+          <ReferenceLine y={0} stroke="#475569" />
+          <Bar dataKey="operating" name="営業損益" stackId="a" fill="#3b82f6"
+            onClick={(d: ChartPoint) => onSelect(d.key)} cursor="pointer"
+            opacity={0.7}
+          />
+          {showInvestment && (
+            <Bar dataKey="investment" name="投資運用損益" stackId="a" fill="#a855f7"
+              onClick={(d: ChartPoint) => onSelect(d.key)} cursor="pointer"
+              opacity={0.7} radius={[3, 3, 0, 0]}
+            />
+          )}
+          <Line type="monotone" dataKey="total" name="総合損益" stroke="#22c55e" strokeWidth={2}
+            dot={{ r: 3, fill: "#22c55e", stroke: "#22c55e" }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </Card>
   );
 }
 
@@ -350,15 +462,14 @@ function PeriodPL({ summary, label, year, month, investPL }: { summary: MonthlyS
 }
 
 /** 四半期 */
-function QuarterlyPL({ year, quarterRows, yearTotal, investPL: yearInvestPL }: {
+function QuarterlyPL({ year, quarterRows, yearTotal, investPL: yearInvestPL, selectedQ, setSelectedQ }: {
   year: number;
   quarterRows: QuarterRow[];
   yearTotal: { income: number; expense: number };
   investPL: InvestmentPL | null;
+  selectedQ: number;
+  setSelectedQ: (q: number) => void;
 }) {
-  const now = new Date();
-  const currentQ = Math.ceil((now.getMonth() + 1) / 3);
-  const [selectedQ, setSelectedQ] = useState(currentQ);
   const [detail, setDetail] = useState<CategorySummary | null>(null);
   const [qInvestPL, setQInvestPL] = useState<InvestmentPL | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
