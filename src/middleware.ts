@@ -1,30 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const COOKIE_NAME = "kakei_auth";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30日
+
 export function middleware(req: NextRequest) {
   const password = process.env.BASIC_AUTH_PASSWORD;
 
   // 環境変数未設定ならスキップ（ローカル開発用）
   if (!password) return NextResponse.next();
 
-  const auth = req.headers.get("authorization");
+  // Cookie認証チェック
+  const authCookie = req.cookies.get(COOKIE_NAME);
+  if (authCookie?.value === password) return NextResponse.next();
 
-  if (auth) {
-    const [scheme, encoded] = auth.split(" ");
-    if (scheme === "Basic" && encoded) {
-      const decoded = atob(encoded);
-      const [, pwd] = decoded.split(":");
-      if (pwd === password) {
-        return NextResponse.next();
-      }
-    }
+  // /login ページはスキップ
+  if (req.nextUrl.pathname === "/login") return NextResponse.next();
+
+  // API: パスワード認証
+  if (req.nextUrl.pathname === "/api/auth") {
+    return NextResponse.next();
   }
 
-  return new NextResponse("Authentication required", {
-    status: 401,
-    headers: {
-      "WWW-Authenticate": 'Basic realm="kakei-analytics"',
-    },
-  });
+  // 未認証 → ログインページへリダイレクト
+  const loginUrl = new URL("/login", req.url);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
