@@ -105,11 +105,13 @@ function AnalysisSection({
   period,
   analysis,
   onGenerated,
+  label,
 }: {
   year: number;
-  period: "annual" | "quarterly";
+  period: string;
   analysis: ReportAnalysis;
   onGenerated: (analysis: ReportAnalysis) => void;
+  label?: string;
 }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,15 +136,15 @@ function AnalysisSection({
     }
   }
 
-  const periodLabel = period === "annual" ? "年次" : "四半期";
+  const periodLabel = label ?? (period === "annual" ? "年次" : period);
 
   return (
     <Card className="border-purple-800/30 bg-purple-950/5">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <CardTitle>定性分析レポート（AI）</CardTitle>
+          <CardTitle>{periodLabel} 定性分析レポート（AI）</CardTitle>
           <p className="text-slate-500 text-xs mt-0.5">
-            Gemini が{year}年{periodLabel}データをもとに企業決算発表風の定性分析を生成します
+            Gemini が{year}年 {periodLabel}データをもとに定性分析を生成します
           </p>
         </div>
         {!analysis && (
@@ -235,7 +237,7 @@ export default function ReportPage() {
   const [annual, setAnnual] = useState<AnnualReport | null>(null);
   const [quarterly, setQuarterly] = useState<QuarterlyReport | null>(null);
   const [annualAnalysis, setAnnualAnalysis] = useState<ReportAnalysis>(null);
-  const [quarterlyAnalysis, setQuarterlyAnalysis] = useState<ReportAnalysis>(null);
+  const [quarterlyAnalyses, setQuarterlyAnalyses] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const allYears = Array.from({ length: 8 }, (_, i) => 2019 + i).reverse();
@@ -256,7 +258,8 @@ export default function ReportPage() {
         setAnnualAnalysis(analysisJson.data);
       } else {
         setQuarterly(reportJson.data);
-        setQuarterlyAnalysis(analysisJson.data);
+        // quarterly analysisは { q1: "...", q2: "...", ... } の形式
+        setQuarterlyAnalyses(analysisJson.data ?? {});
       }
     } finally {
       setLoading(false);
@@ -264,9 +267,6 @@ export default function ReportPage() {
   }, [tab, year]);
 
   useEffect(() => { load(); }, [load]);
-
-  const currentAnalysis = tab === "annual" ? annualAnalysis : quarterlyAnalysis;
-  const setCurrentAnalysis = tab === "annual" ? setAnnualAnalysis : setQuarterlyAnalysis;
 
   return (
     <div className="p-4 sm:p-6">
@@ -312,14 +312,14 @@ export default function ReportPage() {
         <AnnualView
           data={annual}
           analysis={annualAnalysis}
-          onAnalysisGenerated={setCurrentAnalysis}
+          onAnalysisGenerated={setAnnualAnalysis}
           year={year}
         />
       ) : tab === "quarterly" && quarterly ? (
         <QuarterlyView
           data={quarterly}
-          analysis={quarterlyAnalysis}
-          onAnalysisGenerated={setCurrentAnalysis}
+          quarterlyAnalyses={quarterlyAnalyses}
+          onQuarterAnalysisGenerated={(q, text) => setQuarterlyAnalyses(prev => ({ ...prev, [q]: text }))}
           year={year}
         />
       ) : null}
@@ -548,13 +548,13 @@ function AnnualView({
 // ──────────────────────────────────────────────
 function QuarterlyView({
   data,
-  analysis,
-  onAnalysisGenerated,
+  quarterlyAnalyses,
+  onQuarterAnalysisGenerated,
   year,
 }: {
   data: QuarterlyReport;
-  analysis: ReportAnalysis;
-  onAnalysisGenerated: (a: ReportAnalysis) => void;
+  quarterlyAnalyses: Record<string, string>;
+  onQuarterAnalysisGenerated: (q: string, text: string) => void;
   year: number;
 }) {
   const chartData = data.quarters.map((q) => ({
@@ -740,13 +740,21 @@ function QuarterlyView({
         ))}
       </div>
 
-      {/* 定性分析 */}
-      <AnalysisSection
-        year={year}
-        period="quarterly"
-        analysis={analysis}
-        onGenerated={onAnalysisGenerated}
-      />
+      {/* 四半期別 定性分析 */}
+      {[1, 2, 3, 4].map((q) => {
+        const key = `q${q}`;
+        const analysisText = quarterlyAnalyses[key];
+        return (
+          <AnalysisSection
+            key={key}
+            year={year}
+            period={key}
+            analysis={analysisText ? { analysis: analysisText } as ReportAnalysis : null}
+            onGenerated={(a) => onQuarterAnalysisGenerated(key, a?.analysis ?? "")}
+            label={`Q${q}`}
+          />
+        );
+      })}
     </div>
   );
 }

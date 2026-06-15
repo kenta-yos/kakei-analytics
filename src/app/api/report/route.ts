@@ -19,6 +19,21 @@ export async function GET(req: NextRequest) {
   try {
     if (type === "analysis") {
       const period = searchParams.get("period") ?? "annual";
+      if (period === "quarterly") {
+        // 四半期: Q1〜Q4全部取得して返す
+        const rows = await db
+          .select()
+          .from(reportAnalyses)
+          .where(
+            and(
+              eq(reportAnalyses.year, year),
+              sql`${reportAnalyses.reportType} IN ('q1','q2','q3','q4')`
+            )
+          );
+        const map: Record<string, string> = {};
+        for (const r of rows) map[r.reportType] = r.analysis;
+        return NextResponse.json({ data: map });
+      }
       const rows = await db
         .select()
         .from(reportAnalyses)
@@ -52,7 +67,7 @@ export async function POST(req: NextRequest) {
     const { action, year, period } = body as {
       action: string;
       year: number;
-      period: "annual" | "quarterly";
+      period: string; // 'annual' | 'q1' | 'q2' | 'q3' | 'q4'
     };
 
     if (action !== "generate_analysis") {
@@ -74,11 +89,17 @@ export async function POST(req: NextRequest) {
     }
 
     // データを取得してプロンプト用コンテキストを構築
-    const context = period === "annual"
-      ? await buildAnnualContext(year)
-      : await buildQuarterlyContext(year);
+    const qMatch = period.match(/^q(\d)$/);
+    let context: string;
+    if (qMatch) {
+      const q = parseInt(qMatch[1]);
+      context = await buildSingleQuarterContext(year, q);
+    } else {
+      context = await buildAnnualContext(year);
+    }
 
-    const periodLabel = period === "annual" ? "年次" : "四半期別";
+    const periodLabel = period === "annual" ? "年次"
+      : `第${period.replace("q", "")}四半期`;
     const prompt = `以下は${year}年の家計${periodLabel}決算データです。このデータをもとに、企業の決算発表のような定性的な分析レポートを日本語で作成してください。
 
 ## 作成要件
@@ -282,6 +303,37 @@ async function buildQuarterlyContext(year: number): Promise<string> {
       };
     }),
     月別詳細: data.monthly,
+  }, null, 2);
+}
+
+/** 単一四半期のコンテキスト */
+async function buildSingleQuarterContext(year: number, quarter: number): Promise<string> {
+  const data = await getQuarterlyReport(year);
+  const q = data.quarters[quarter - 1];
+  if (!q) return JSON.stringify({ error: "該当四半期データなし" });
+
+  const months = QUARTERS[quarter - 1].months;
+  const [catTx, highExp] = await Promise.all([
+    getTopTransactionsForPeriod(year, months, 5, 10),
+    getHighExpenseTransactions(year, months, 15),
+  ]);
+
+  const monthlyDetail = data.monthly.filter(m => months.includes(m.month));
+
+  return JSON.stringify({
+    year,
+    四半期: `Q${quarter}`,
+    収入: q.income,
+    支出: q.expense,
+    純損益: q.netIncome,
+    貯蓄率: q.savingsRate,
+    四半期末純資産: q.netAsset,
+    前年同期比収入: q.yoy.income,
+    前年同期比支出: q.yoy.expense,
+    支出TOP5カテゴリ: q.topCategories,
+    カテゴリ別取引明細: catTx,
+    高額支出TOP15: highExp,
+    月別詳細: monthlyDetail,
   }, null, 2);
 }
 
