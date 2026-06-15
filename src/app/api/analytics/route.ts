@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions, assetSnapshots } from "@/lib/schema";
-import { eq, and, inArray, sql, ne, desc } from "drizzle-orm";
+import { eq, and, inArray, sql, ne, desc, gte, lte } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -76,12 +76,21 @@ export async function GET(req: NextRequest) {
       }
 
       case "compare": {
-        const p1Year = searchParams.get("p1_year") ? parseInt(searchParams.get("p1_year")!) : null;
-        const p1Month = searchParams.get("p1_month") ? parseInt(searchParams.get("p1_month")!) : null;
-        const p2Year = searchParams.get("p2_year") ? parseInt(searchParams.get("p2_year")!) : null;
-        const p2Month = searchParams.get("p2_month") ? parseInt(searchParams.get("p2_month")!) : null;
-        if (!p1Year || !p2Year) return NextResponse.json({ error: "year が必要です" }, { status: 400 });
-        const data = await getComparisonData(p1Year, p1Month ?? undefined, p2Year, p2Month ?? undefined);
+        const p1Start = searchParams.get("p1_start");
+        const p1End = searchParams.get("p1_end");
+        const p2Start = searchParams.get("p2_start");
+        const p2End = searchParams.get("p2_end");
+        if (!p1Start || !p1End || !p2Start || !p2End) {
+          return NextResponse.json({ error: "p1_start, p1_end, p2_start, p2_end が必要です" }, { status: 400 });
+        }
+        const data = await getComparisonDataByRange(p1Start, p1End, p2Start, p2End);
+        return NextResponse.json({ data });
+      }
+
+      case "progress": {
+        const baseYear = searchParams.get("base_year") ? parseInt(searchParams.get("base_year")!) : null;
+        if (!baseYear) return NextResponse.json({ error: "base_year が必要です" }, { status: 400 });
+        const data = await getProgressComparison(baseYear);
         return NextResponse.json({ data });
       }
 
@@ -360,6 +369,169 @@ async function getComparisonData(
       total2: data2.reduce((s, r) => s + r.total, 0),
     },
   };
+}
+
+/** 日付範囲でカテゴリ別支出を集計 */
+async function getCategoryBreakdownByRange(startDate: string, endDate: string) {
+  const conditions = [
+    gte(transactions.date, startDate),
+    lte(transactions.date, endDate),
+    eq(transactions.excludeFromPl, false),
+    ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
+    eq(transactions.type, "支出"),
+  ];
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      total: sql<number>`sum(expense_amount)`,
+      count: sql<number>`count(*)`,
+    })
+    .from(transactions)
+    .where(and(...conditions))
+    .groupBy(transactions.category)
+    .orderBy(sql`sum(expense_amount) desc`);
+
+  const grandTotal = rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
+  return rows.map((r) => ({
+    category: r.category,
+    total: Number(r.total ?? 0),
+    count: Number(r.count ?? 0),
+    ratio: grandTotal > 0 ? Math.round((Number(r.total ?? 0) / grandTotal) * 1000) / 10 : 0,
+  }));
+}
+
+/** 日付範囲でカテゴリ別の高額取引を取得 */
+async function getTopTransactionsByCategoryRange(startDate: string, endDate: string, limitPerCat = 5) {
+  const conditions = [
+    gte(transactions.date, startDate),
+    lte(transactions.date, endDate),
+    eq(transactions.excludeFromPl, false),
+    ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
+    eq(transactions.type, "支出"),
+  ];
+
+  const rows = await db
+    .select({
+      category: transactions.category,
+      itemName: transactions.itemName,
+      expenseAmount: transactions.expenseAmount,
+      date: transactions.date,
+    })
+    .from(transactions)
+    .where(and(...conditions))
+    .orderBy(desc(transactions.expenseAmount));
+
+  const byCategory = new Map<string, Array<{ itemName: string; amount: number; date: string }>>();
+  for (const row of rows) {
+    const cat = row.category;
+    const list = byCategory.get(cat) ?? [];
+    if (list.length < limitPerCat) {
+      list.push({ itemName: row.itemName ?? "", amount: Number(row.expenseAmount), date: row.date });
+      byCategory.set(cat, list);
+    }
+  }
+  return byCategory;
+}
+
+/** 日付範囲指定の比較分析 */
+async function getComparisonDataByRange(
+  p1Start: string, p1End: string,
+  p2Start: string, p2End: string
+) {
+  const [data1, data2, topTx1, topTx2] = await Promise.all([
+    getCategoryBreakdownByRange(p1Start, p1End),
+    getCategoryBreakdownByRange(p2Start, p2End),
+    getTopTransactionsByCategoryRange(p1Start, p1End),
+    getTopTransactionsByCategoryRange(p2Start, p2End),
+  ]);
+  const allCategories = [...new Set([...data1.map((r) => r.category), ...data2.map((r) => r.category)])];
+  const data1Map = new Map(data1.map((r) => [r.category, r.total]));
+  const data2Map = new Map(data2.map((r) => [r.category, r.total]));
+  const comparison = allCategories.map((cat) => {
+    const a1 = data1Map.get(cat) ?? 0;
+    const a2 = data2Map.get(cat) ?? 0;
+    const diff = a2 - a1;
+    return {
+      category: cat,
+      amount1: a1,
+      amount2: a2,
+      diff,
+      diffPct: a1 > 0 ? Math.round((diff / a1) * 100) : null,
+      topTransactions1: topTx1.get(cat) ?? [],
+      topTransactions2: topTx2.get(cat) ?? [],
+    };
+  }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  return {
+    comparison,
+    summary: {
+      total1: data1.reduce((s, r) => s + r.total, 0),
+      total2: data2.reduce((s, r) => s + r.total, 0),
+    },
+  };
+}
+
+/** 進捗率比較: 基準年の年間支出 vs 今年のYTD */
+async function getProgressComparison(baseYear: number) {
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // JST
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const baseConditions = [
+    eq(transactions.excludeFromPl, false),
+    ne(transactions.type, "振替"),
+    ne(transactions.category, "振替"),
+    eq(transactions.type, "支出"),
+  ];
+
+  // 基準年の年間支出
+  const baseRows = await db
+    .select({
+      category: transactions.category,
+      total: sql<number>`sum(expense_amount)`,
+    })
+    .from(transactions)
+    .where(and(...baseConditions, eq(transactions.year, baseYear)))
+    .groupBy(transactions.category);
+
+  // 今年のYTD支出
+  const ytdRows = await db
+    .select({
+      category: transactions.category,
+      total: sql<number>`sum(expense_amount)`,
+    })
+    .from(transactions)
+    .where(and(...baseConditions, eq(transactions.year, currentYear)))
+    .groupBy(transactions.category);
+
+  const baseMap = new Map(baseRows.map((r) => [r.category, Number(r.total ?? 0)]));
+  const ytdMap = new Map(ytdRows.map((r) => [r.category, Number(r.total ?? 0)]));
+  const allCategories = [...new Set([...baseMap.keys(), ...ytdMap.keys()])];
+
+  const expectedPct = Math.round((currentMonth / 12) * 1000) / 10;
+
+  const result = allCategories.map((category) => {
+    const baseTotal = baseMap.get(category) ?? 0;
+    const currentYTD = ytdMap.get(category) ?? 0;
+    const progressPct = baseTotal > 0 ? Math.round((currentYTD / baseTotal) * 1000) / 10 : null;
+    return {
+      category,
+      baseTotal,
+      currentYTD,
+      progressPct,
+      expectedPct,
+    };
+  })
+    // Sort by how much over-pace (progressPct - expectedPct), largest first
+    .sort((a, b) => {
+      const aDiff = (a.progressPct ?? 0) - a.expectedPct;
+      const bDiff = (b.progressPct ?? 0) - b.expectedPct;
+      return bDiff - aDiff;
+    });
+
+  return { categories: result, currentYear, currentMonth, expectedPct };
 }
 
 async function getPastYearSummary() {

@@ -178,6 +178,8 @@ export default function BalanceSheetPage() {
               <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}万`} />
               <Tooltip
                 contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+                labelStyle={{ color: "#94a3b8" }}
+                itemStyle={{ color: "#e2e8f0" }}
                 formatter={(v: number) => [formatCurrency(v), "純資産"]}
               />
               <ReferenceLine y={0} stroke="#475569" />

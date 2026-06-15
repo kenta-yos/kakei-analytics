@@ -22,11 +22,18 @@ export default function AnalyticsPage() {
   const [topItems, setTopItems] = useState<TopItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 比較分析ステート
-  const [cmpP1Year, setCmpP1Year] = useState(now.getFullYear() - 1);
-  const [cmpP1Month, setCmpP1Month] = useState<number | "">("");
-  const [cmpP2Year, setCmpP2Year] = useState(now.getFullYear());
-  const [cmpP2Month, setCmpP2Month] = useState<number | "">(now.getMonth() + 1);
+  // 比較分析ステート（期間指定）
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const curMonthFirstStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const prevMonthFirstStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}-01`;
+  const prevMonthLastStr = `${prevMonthLastDay.getFullYear()}-${String(prevMonthLastDay.getMonth() + 1).padStart(2, "0")}-${String(prevMonthLastDay.getDate()).padStart(2, "0")}`;
+
+  const [cmpP1Start, setCmpP1Start] = useState(prevMonthFirstStr);
+  const [cmpP1End, setCmpP1End] = useState(prevMonthLastStr);
+  const [cmpP2Start, setCmpP2Start] = useState(curMonthFirstStr);
+  const [cmpP2End, setCmpP2End] = useState(todayStr);
   type TxDetail = { itemName: string; amount: number; date: string };
   const [cmpData, setCmpData] = useState<{
     comparison: Array<{
@@ -40,8 +47,23 @@ export default function AnalyticsPage() {
   const [cmpAiResult, setCmpAiResult] = useState("");
   const [cmpAiError, setCmpAiError] = useState("");
 
-  const cmpLabel1 = `${cmpP1Year}年${cmpP1Month !== "" ? cmpP1Month + "月" : ""}`;
-  const cmpLabel2 = `${cmpP2Year}年${cmpP2Month !== "" ? cmpP2Month + "月" : ""}`;
+  const formatDateLabel = (d: string) => {
+    const [y, m, day] = d.split("-").map(Number);
+    return `${y}/${m}/${day}`;
+  };
+  const cmpLabel1 = `${formatDateLabel(cmpP1Start)}〜${formatDateLabel(cmpP1End)}`;
+  const cmpLabel2 = `${formatDateLabel(cmpP2Start)}〜${formatDateLabel(cmpP2End)}`;
+
+  // 進捗率比較ステート
+  const [progressBaseYear, setProgressBaseYear] = useState(now.getFullYear() - 1);
+  const [progressData, setProgressData] = useState<{
+    categories: Array<{
+      category: string; baseTotal: number; currentYTD: number;
+      progressPct: number | null; expectedPct: number;
+    }>;
+    currentYear: number; currentMonth: number; expectedPct: number;
+  } | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -74,16 +96,32 @@ export default function AnalyticsPage() {
     try {
       const params = new URLSearchParams({
         type: "compare",
-        p1_year: String(cmpP1Year),
-        p2_year: String(cmpP2Year),
+        p1_start: cmpP1Start,
+        p1_end: cmpP1End,
+        p2_start: cmpP2Start,
+        p2_end: cmpP2End,
       });
-      if (cmpP1Month !== "") params.set("p1_month", String(cmpP1Month));
-      if (cmpP2Month !== "") params.set("p2_month", String(cmpP2Month));
       const res = await fetch(`/api/analytics?${params}`);
       const json = await res.json();
       setCmpData(json.data ?? null);
     } finally {
       setCmpLoading(false);
+    }
+  }
+
+  async function runProgress() {
+    setProgressLoading(true);
+    setProgressData(null);
+    try {
+      const params = new URLSearchParams({
+        type: "progress",
+        base_year: String(progressBaseYear),
+      });
+      const res = await fetch(`/api/analytics?${params}`);
+      const json = await res.json();
+      setProgressData(json.data ?? null);
+    } finally {
+      setProgressLoading(false);
     }
   }
 
@@ -250,42 +288,30 @@ export default function AnalyticsPage() {
             <CardTitle>比較分析</CardTitle>
             <div className="space-y-4">
               {/* 期間セレクター */}
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
                   <span className="text-slate-400 text-sm">期間1</span>
-                  <select value={cmpP1Year} onChange={(e) => setCmpP1Year(Number(e.target.value))}
-                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
-                    {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
-                      <option key={y} value={y}>{y}年</option>
-                    ))}
-                  </select>
-                  <select value={cmpP1Month} onChange={(e) => setCmpP1Month(e.target.value === "" ? "" : Number(e.target.value))}
-                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
-                    <option value="">年全体</option>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                      <option key={m} value={m}>{m}月</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <input type="date" value={cmpP1Start} onChange={(e) => setCmpP1Start(e.target.value)}
+                      className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 [color-scheme:dark]" />
+                    <span className="text-slate-500 text-sm">〜</span>
+                    <input type="date" value={cmpP1End} onChange={(e) => setCmpP1End(e.target.value)}
+                      className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 [color-scheme:dark]" />
+                  </div>
                 </div>
-                <span className="text-slate-500 font-bold">vs</span>
-                <div className="flex items-center gap-2">
+                <span className="text-slate-500 font-bold pb-2">vs</span>
+                <div className="flex flex-col gap-1">
                   <span className="text-slate-400 text-sm">期間2</span>
-                  <select value={cmpP2Year} onChange={(e) => setCmpP2Year(Number(e.target.value))}
-                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
-                    {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
-                      <option key={y} value={y}>{y}年</option>
-                    ))}
-                  </select>
-                  <select value={cmpP2Month} onChange={(e) => setCmpP2Month(e.target.value === "" ? "" : Number(e.target.value))}
-                    className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
-                    <option value="">年全体</option>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                      <option key={m} value={m}>{m}月</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <input type="date" value={cmpP2Start} onChange={(e) => setCmpP2Start(e.target.value)}
+                      className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 [color-scheme:dark]" />
+                    <span className="text-slate-500 text-sm">〜</span>
+                    <input type="date" value={cmpP2End} onChange={(e) => setCmpP2End(e.target.value)}
+                      className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700 [color-scheme:dark]" />
+                  </div>
                 </div>
                 <button onClick={runComparison} disabled={cmpLoading}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition">
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition mb-0.5">
                   {cmpLoading ? "比較中..." : "比較"}
                 </button>
               </div>
@@ -381,6 +407,90 @@ export default function AnalyticsPage() {
                       </div>
                     )}
                   </div>
+                </>
+              )}
+            </div>
+          </Card>
+
+          {/* 進捗率比較 */}
+          <Card>
+            <CardTitle>進捗率比較</CardTitle>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-slate-400 text-sm">基準年</span>
+                <select value={progressBaseYear} onChange={(e) => setProgressBaseYear(Number(e.target.value))}
+                  className="bg-slate-800 text-white text-sm rounded-lg px-3 py-2 border border-slate-700">
+                  {Array.from({ length: 8 }, (_, i) => 2019 + i).map((y) => (
+                    <option key={y} value={y}>{y}年</option>
+                  ))}
+                </select>
+                <span className="text-slate-500 text-sm">の年間支出 vs 今年のYTD</span>
+                <button onClick={runProgress} disabled={progressLoading}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition">
+                  {progressLoading ? "集計中..." : "比較"}
+                </button>
+              </div>
+
+              {progressData && (
+                <>
+                  <p className="text-slate-500 text-sm">
+                    {progressData.currentYear}年{progressData.currentMonth}月時点の期待進捗率: <span className="text-white font-medium">{progressData.expectedPct}%</span>
+                  </p>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>カテゴリ</th>
+                        <th className="text-right">{progressBaseYear}年 合計</th>
+                        <th className="text-right">{progressData.currentYear}年 YTD</th>
+                        <th className="text-right">進捗率</th>
+                        <th className="hidden sm:table-cell">進捗バー</th>
+                        <th className="text-right">差分</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {progressData.categories
+                        .filter((r) => r.baseTotal > 0 || r.currentYTD > 0)
+                        .map((row) => {
+                          const pct = row.progressPct ?? 0;
+                          const diff = Math.round((pct - row.expectedPct) * 10) / 10;
+                          const isOver = diff > 0;
+                          const barWidth = Math.min(pct, 150);
+                          return (
+                            <tr key={row.category}>
+                              <td className="text-slate-300">{row.category}</td>
+                              <td className="text-right text-slate-400">{row.baseTotal > 0 ? formatCurrency(row.baseTotal) : "—"}</td>
+                              <td className="text-right text-slate-300">{row.currentYTD > 0 ? formatCurrency(row.currentYTD) : "—"}</td>
+                              <td className="text-right">
+                                <span className={`font-medium ${row.progressPct !== null ? (isOver ? "text-red-400" : "text-green-400") : "text-slate-500"}`}>
+                                  {row.progressPct !== null ? `${row.progressPct}%` : "—"}
+                                </span>
+                              </td>
+                              <td className="hidden sm:table-cell">
+                                <div className="relative w-full h-3 bg-slate-700 rounded-full overflow-hidden">
+                                  {/* 期待進捗ライン */}
+                                  <div
+                                    className="absolute top-0 h-full w-0.5 bg-slate-400 z-10"
+                                    style={{ left: `${Math.min(row.expectedPct / 1.5, 100)}%` }}
+                                  />
+                                  {/* 実際の進捗バー */}
+                                  <div
+                                    className={`h-full rounded-full ${isOver ? "bg-red-500" : "bg-green-500"}`}
+                                    style={{ width: `${Math.min(barWidth / 1.5, 100)}%` }}
+                                  />
+                                </div>
+                              </td>
+                              <td className="text-right">
+                                {row.progressPct !== null ? (
+                                  <span className={`text-sm font-medium ${isOver ? "text-red-400" : "text-green-400"}`}>
+                                    {isOver ? "+" : ""}{diff}pt
+                                  </span>
+                                ) : <span className="text-slate-600">—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
                 </>
               )}
             </div>
