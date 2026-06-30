@@ -142,10 +142,11 @@ export default function PLPage() {
         return { key: String(q), label: `Q${q}`, operating: op, investment: inv, total: op + inv };
       });
     }
-    // Yearly: operating only
-    return yearlySummaries.map((d) => ({
-      key: String(d.year), label: `${d.year}`, operating: d.netIncome, investment: 0, total: d.netIncome,
-    }));
+    // Yearly: include investment gain per year
+    return yearlySummaries.map((d) => {
+      const inv = (d as { investGain?: number }).investGain ?? 0;
+      return { key: String(d.year), label: `${d.year}`, operating: d.netIncome, investment: inv, total: d.netIncome + inv };
+    });
   }, [mode, monthlyData, monthlyInvestPL, yearlySummaries]);
 
   const selectedKey = mode === "monthly" ? String(month) : mode === "quarterly" ? String(selectedQ) : String(year);
@@ -191,7 +192,7 @@ export default function PLPage() {
 
       {/* 損益推移チャート */}
       {!loading && chartData.length > 0 && (
-        <PLTrendChart data={chartData} selectedKey={selectedKey} onSelect={handleChartClick} showInvestment={mode !== "yearly"} />
+        <PLTrendChart data={chartData} selectedKey={selectedKey} onSelect={handleChartClick} showInvestment={true} />
       )}
 
       {loading ? (

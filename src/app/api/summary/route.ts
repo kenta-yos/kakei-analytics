@@ -62,9 +62,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data, yearCategories, investmentPL: investPL, monthlyInvestmentPL });
     }
 
-    // デフォルト: 全期間の年次サマリー
+    // デフォルト: 全期間の年次サマリー + 年ごとの投資PL
     const data = await getYearlySummaries();
-    return NextResponse.json({ data });
+    // 各年の投資PLを取得
+    const yearlyInvestPL = await Promise.all(
+      data.map(async (d) => {
+        const months = Array.from({ length: 12 }, (_, i) => i + 1);
+        const r = await getInvestmentPLForMonths(d.year, months);
+        return { year: d.year, investGain: r.totalGain };
+      })
+    );
+    const investMap = new Map(yearlyInvestPL.map(d => [d.year, d.investGain]));
+    const dataWithInvest = data.map(d => ({
+      ...d,
+      investGain: investMap.get(d.year) ?? 0,
+    }));
+    return NextResponse.json({ data: dataWithInvest });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "サマリーの取得に失敗しました" }, { status: 500 });
