@@ -462,14 +462,21 @@ function YearGridSection({
   const currentYearMonth = now.getFullYear() * 100 + (now.getMonth() + 1);
   const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 
-  // 残額計算: 各月の予算計 - 支出（過去は実績、未来は予測）
-  const remaining = MONTHS.map((m) => {
-    const bt = budgetTrajectory[m - 1];
-    const ys = yearSummary[m - 1];
-    const isPast = year * 100 + m <= currentYearMonth;
-    const spending = isPast ? (ys?.actualTotal ?? 0) : (ys?.plannedTotal ?? 0);
-    return bt.totalBudget - spending;
-  });
+  // 残額計算: 前月残 + 追加 - 支出 の累計
+  const remaining = (() => {
+    const result: number[] = [];
+    let prev = 0;
+    for (const m of MONTHS) {
+      const bt = budgetTrajectory[m - 1];
+      const ys = yearSummary[m - 1];
+      const isPast = year * 100 + m <= currentYearMonth;
+      const spending = isPast ? (ys?.actualTotal ?? 0) : (ys?.plannedTotal ?? 0);
+      const balance = prev + bt.allocation - spending;
+      result.push(balance);
+      prev = balance;
+    }
+    return result;
+  })();
 
   const fmt = (v: number) => formatCurrency(v);
   const hasBudget = budgetTrajectory.some((b) => b.totalBudget !== 0 || b.allocation !== 0);
