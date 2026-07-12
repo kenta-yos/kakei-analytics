@@ -125,29 +125,38 @@ export default function PLPage() {
     };
   });
 
-  // Chart data based on mode
+  // Chart data based on mode (未来の期間は除外)
   const chartData: ChartPoint[] = useMemo(() => {
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentQ = Math.ceil(currentMonth / 3);
+
     if (mode === "monthly") {
-      return monthlyData.map((d) => {
-        const op = d.totalIncome - d.totalExpense;
-        const inv = monthlyInvestPL.find(m => m.month === d.month)?.totalGain ?? 0;
-        return { key: String(d.month), label: `${d.month}月`, operating: op, investment: inv, total: op + inv };
-      });
+      return monthlyData
+        .filter((d) => year < currentYear || d.month <= currentMonth)
+        .map((d) => {
+          const op = d.totalIncome - d.totalExpense;
+          const inv = monthlyInvestPL.find(m => m.month === d.month)?.totalGain ?? 0;
+          return { key: String(d.month), label: `${d.month}月`, operating: op, investment: inv, total: op + inv };
+        });
     }
     if (mode === "quarterly") {
-      return [1, 2, 3, 4].map((q) => {
+      const maxQ = year < currentYear ? 4 : currentQ;
+      return [1, 2, 3, 4].filter(q => q <= maxQ).map((q) => {
         const qm = monthlyData.filter(d => Math.ceil(d.month / 3) === q);
         const op = qm.reduce((s, d) => s + d.totalIncome - d.totalExpense, 0);
         const inv = monthlyInvestPL.filter(d => Math.ceil(d.month / 3) === q).reduce((s, d) => s + d.totalGain, 0);
         return { key: String(q), label: `Q${q}`, operating: op, investment: inv, total: op + inv };
       });
     }
-    // Yearly: include investment gain per year
-    return yearlySummaries.map((d) => {
-      const inv = (d as { investGain?: number }).investGain ?? 0;
-      return { key: String(d.year), label: `${d.year}`, operating: d.netIncome, investment: inv, total: d.netIncome + inv };
-    });
-  }, [mode, monthlyData, monthlyInvestPL, yearlySummaries]);
+    // Yearly
+    return yearlySummaries
+      .filter((d) => d.year <= currentYear)
+      .map((d) => {
+        const inv = (d as { investGain?: number }).investGain ?? 0;
+        return { key: String(d.year), label: `${d.year}`, operating: d.netIncome, investment: inv, total: d.netIncome + inv };
+      });
+  }, [mode, monthlyData, monthlyInvestPL, yearlySummaries, year, now]);
 
   const selectedKey = mode === "monthly" ? String(month) : mode === "quarterly" ? String(selectedQ) : String(year);
 

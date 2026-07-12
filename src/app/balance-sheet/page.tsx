@@ -55,15 +55,23 @@ export default function BalanceSheetPage() {
     }
   }, [year, effectiveMonth]);
 
-  // チャートデータ取得
+  // チャートデータ取得（未来の期間は除外）
   const fetchChartData = useCallback(async () => {
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentQ = Math.ceil(currentMonth / 3);
     const periods: { key: string; label: string; y: number; m: number }[] = [];
     if (mode === "monthly") {
-      for (let m = 1; m <= 12; m++) periods.push({ key: String(m), label: `${m}月`, y: year, m });
+      const maxMonth = year < currentYear ? 12 : currentMonth;
+      for (let m = 1; m <= maxMonth; m++) periods.push({ key: String(m), label: `${m}月`, y: year, m });
     } else if (mode === "quarterly") {
-      for (let q = 1; q <= 4; q++) periods.push({ key: String(q), label: `Q${q}`, y: year, m: Q_MONTH[q] });
+      const maxQ = year < currentYear ? 4 : currentQ;
+      for (let q = 1; q <= maxQ; q++) periods.push({ key: String(q), label: `Q${q}`, y: year, m: Q_MONTH[q] });
     } else {
-      for (let y = 2019; y <= new Date().getFullYear(); y++) periods.push({ key: String(y), label: String(y), y, m: 12 });
+      for (let y = 2019; y <= currentYear; y++) {
+        const m = y < currentYear ? 12 : currentMonth;
+        periods.push({ key: String(y), label: String(y), y, m });
+      }
     }
     const results = await Promise.all(
       periods.map(async (p) => {
