@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "家計の締め",
-    short_name: "家計",
+    name: "くらしの決算",
+    short_name: "くらしの決算",
     description: "月末の予算配分と、資産・損益の振り返り",
     start_url: "/",
     display: "standalone",

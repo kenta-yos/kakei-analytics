@@ -12,7 +12,7 @@ const plex = IBM_Plex_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  title: "家計の締め",
+  title: "くらしの決算",
   description: "月末の予算配分と、資産・損益の振り返り",
   icons: {
     icon: "/icon.png",
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "家計",
+    title: "くらしの決算",
     statusBarStyle: "default",
   },
 };

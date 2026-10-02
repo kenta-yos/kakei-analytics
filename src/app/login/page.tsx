@@ -32,7 +32,7 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-xs">
-        <h1 className="mb-2 text-center text-2xl font-bold">家計の締め</h1>
+        <h1 className="mb-2 text-center text-2xl font-bold">くらしの決算</h1>
         <p className="lbl mb-8 text-center">パスワードを入力してください</p>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label htmlFor="password" className="sr-only">

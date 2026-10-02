@@ -21,7 +21,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[232px_minmax(0,1fr)]">
       <aside className="sticky top-0 hidden h-screen flex-col gap-1 border-r border-line bg-card px-4 py-7 lg:flex">
-        <div className="px-3 pb-5 text-base font-bold">家計の締め</div>
+        <div className="px-3 pb-5 text-base font-bold">くらしの決算</div>
         {NAV.map(({ href, label, icon: Icon, match }) => (
           <Link
             key={href}
