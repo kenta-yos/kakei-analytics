@@ -84,7 +84,6 @@ export default function KessanPage() {
             />
             <div className="flex justify-between text-xs text-sub">
               <span>{periods[0]?.label}</span>
-              <span className="text-mute">タップで期間を選択</span>
               <span>{periods[periods.length - 1]?.label}</span>
             </div>
             <div className="flex flex-col border-t border-line2">
@@ -156,7 +155,7 @@ export default function KessanPage() {
           )}
 
           <Card className="flex flex-col gap-3">
-            <CardTitle right={<span className="lbl">タップで期間を選択</span>}>損益の推移（PL）</CardTitle>
+            <CardTitle>損益の推移（PL）</CardTitle>
             <Legend
               items={[
                 { label: "家計の収支", swatch: <span className="h-2.5 w-2.5 rounded-sm bg-accent" /> },
