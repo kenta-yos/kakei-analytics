@@ -77,6 +77,7 @@ export async function buildExport(view: ExportView, opt: ExportOptions): Promise
       parts.push(
         "## 1〜" + pace.upToMonth + "月の支出累計",
         `今年 ${n(last)} 円 / 例年平均 ${n(b.avg)} 円（幅 ${n(b.min)}〜${n(b.max)} 円）`,
+        `月平均にすると: 今年 ${n(last / pace.upToMonth)} 円 / 例年平均 ${n(b.avg / pace.upToMonth)} 円（差 ${n((last - b.avg) / pace.upToMonth)} 円）`,
         "## 年別・月別の支出",
         table(
           ["年", ...Array.from({ length: 12 }, (_, i) => `${i + 1}月`)],

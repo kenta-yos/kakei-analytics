@@ -124,6 +124,7 @@ export default function PacePage() {
                       key={c.category}
                       year={data.year}
                       month={scope === "month" ? data.month.month : undefined}
+                      months={scope === "year" ? data.upToMonth : 1}
                       c={c}
                       open={open === c.category}
                       onToggle={() => setOpen(open === c.category ? null : c.category)}
@@ -148,11 +149,14 @@ function Headline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<ty
   const above = cur - b.max;
   const below = b.min - cur;
   const latest = data.latestDate.slice(5).replace("-", "/").replace(/^0/, "");
+  const months = data.upToMonth;
+  const perMonth = (v: number) => v / months;
+  const avgGap = perMonth(cur - b.avg);
 
   return (
     <Card className="flex flex-col gap-2.5">
       <span className="lbl">
-        1〜{data.upToMonth}月の支出累計（{latest} 時点）
+        1〜{months}月の支出（{latest} 時点）
       </span>
       {!hasBase ? (
         <div className="text-lg font-bold">比べる年を選んでください</div>
@@ -171,18 +175,33 @@ function Headline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<ty
           )}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2 pt-1">
-        <div>
-          <div className="lbl">今年</div>
-          <div className="text-base font-bold">{yen(cur)}</div>
+      {hasBase && (
+        <div className="rounded-[10px] bg-panel px-3 py-2.5 text-sm">
+          月あたりにすると、例年平均より{" "}
+          <b className={avgGap > 0 ? "text-over" : "text-accent"}>
+            {yen(Math.abs(avgGap))} {avgGap > 0 ? "多い" : "少ない"}
+          </b>
+          {above > 0 && <span className="text-sub">（範囲の上限より月 {yen(perMonth(above))} 多い）</span>}
+          {below > 0 && <span className="text-sub">（範囲の下限より月 {yen(perMonth(below))} 少ない）</span>}
         </div>
-        <div>
-          <div className="lbl">例年（平均 / 幅）</div>
-          <div className="text-base font-bold">{yen(b.avg)}</div>
-          <div className="lbl">
-            {yen(b.min)}〜{num(b.max)}
-          </div>
-        </div>
+      )}
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 pt-1 text-sm">
+        <span />
+        <span className="lbl text-right">累計</span>
+        <span className="lbl text-right">月平均</span>
+        <span className="font-bold">今年</span>
+        <span className="text-right font-bold">{yen(cur)}</span>
+        <span className="text-right font-bold">{yen(perMonth(cur))}</span>
+        <span className="text-sub">例年平均</span>
+        <span className="text-right">{yen(b.avg)}</span>
+        <span className="text-right">{yen(perMonth(b.avg))}</span>
+        <span className="text-sub">例年の幅</span>
+        <span className="text-right text-xs text-sub">
+          {num(b.min)}〜{num(b.max)}
+        </span>
+        <span className="text-right text-xs text-sub">
+          {num(perMonth(b.min))}〜{num(perMonth(b.max))}
+        </span>
       </div>
       <LineChart
         xCount={12}
@@ -267,12 +286,15 @@ function MonthHeadline({ data, calc, hasBase }: { data: PaceData; calc: ReturnTy
 function CategoryRow({
   year,
   month,
+  months,
   c,
   open,
   onToggle,
 }: {
   year: number;
   month?: number;
+  /** 何か月分の累計か（1 なら月あたりは出さない） */
+  months: number;
   c: CategoryBand;
   open: boolean;
   onToggle: () => void;
@@ -300,6 +322,9 @@ function CategoryRow({
           </span>
           <span className={`text-[13px] font-bold ${above ? "text-over" : below ? "text-accent" : "text-sub"}`}>
             {above ? `幅より +${num(c.outside)}` : below ? `幅より −${num(-c.outside)}` : "範囲内"}
+            {months > 1 && (above || below) && (
+              <span className="ml-1 font-normal text-sub">（月 {above ? "+" : "−"}{num(Math.abs(c.outside) / months)}）</span>
+            )}
           </span>
         </div>
         <div className="relative h-4 w-full">
@@ -315,6 +340,7 @@ function CategoryRow({
         </div>
         <div className="lbl">
           今年 {yen(c.current)} · 例年 {yen(c.min)}〜{num(c.max)}
+          {months > 1 && ` · 月平均 今年 ${num(c.current / months)} / 例年 ${num(c.avg / months)}`}
         </div>
       </button>
       {open && (
