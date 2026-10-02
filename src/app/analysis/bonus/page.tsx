@@ -271,14 +271,20 @@ function Plans({
         const items = data.plans.filter((p) => p.year === m.year && p.month === m.month);
         return (
           <div key={m.ym} className="border-t border-line2 py-2">
-            <div className="flex items-baseline justify-between">
-              <span className="text-[13px] font-bold">
-                {m.year !== data.current.year ? `${m.year}年` : ""}
-                {m.label}
-              </span>
-              <span className="lbl">
-                配分 {num(m.allocation)} − 予定 {num(m.planned)} → 残高 {yen(m.balance)}
-              </span>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="block text-sm font-bold">
+                  {m.year !== data.current.year ? `${m.year}年` : ""}
+                  {m.label}
+                </span>
+                <span className="lbl">
+                  配分 {num(m.allocation)} − 予定 {num(m.planned)}
+                </span>
+              </div>
+              <div className="shrink-0 text-right">
+                <span className="lbl block">月末の残高</span>
+                <span className={`text-lg font-bold leading-tight ${m.balance < 0 ? "text-over" : "text-accent-deep"}`}>{yen(m.balance)}</span>
+              </div>
             </div>
             {items.length === 0 && <div className="py-1 text-[13px] text-mute">予定なし</div>}
             {items.map((p, i) => (
