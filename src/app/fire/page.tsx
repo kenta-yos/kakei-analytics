@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Card, CardTitle, ErrorBox, Loading, Page, PageTitle, useApi } from "@/components/ui/kit";
 import { PencilIcon } from "@/components/ui/icons";
-import { ageInMonths, monthsUntilPoolEmpty, neededSaving, pensionAt, whenCanRetire, type Plan } from "@/lib/fire";
+import { ageInMonths, monthsUntilPoolEmpty, neededSaving, whenCanRetire, type Plan } from "@/lib/fire";
 import { num, yen } from "@/lib/format";
 
 type Settings = {
@@ -239,12 +239,6 @@ export default function FirePage() {
               <span className="lbl">いまのペースだと {man(reverse.projected)}</span>
             </div>
           </div>
-          <span className="lbl">
-            {p.targetRetireAge}歳でリタイアした場合の年金 月 {yen(pensionAt(p.targetRetireAge * 12, p))}（{p.pensionStartAge}歳から）
-          </span>
-          <p className="lbl leading-relaxed">
-            毎月の積立＝原資（ゆうちょ投資用・SBI証券）に新しく入れるお金。いまの投信・iDeCo への積立に上乗せして、すべて運用に回す前提です。
-          </p>
         </Card>
       )}
 
