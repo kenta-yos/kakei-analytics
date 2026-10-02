@@ -5,7 +5,7 @@
 import { BONUS_CATEGORY } from "@/lib/categories";
 import { getConsumptionTransactions, type TxItem } from "@/lib/finance";
 import { BIG_THRESHOLD, getBonusData, getPaceData, getUpcomingData, getWhyData } from "@/lib/analysis";
-import { monthBand, paceBand } from "@/lib/pace";
+import { monthProjection, paceBand } from "@/lib/pace";
 import { ymKey } from "@/lib/format";
 
 export type ExportView = "pace" | "why" | "bonus" | "upcoming";
@@ -244,54 +244,54 @@ export async function buildExport(view: ExportView, opt: ExportOptions): Promise
   return { title, markdown: parts.filter(Boolean).join("\n\n") + "\n" };
 }
 
-/** 例年比ペース（今月）: 同じ月・同じ日までで比べる */
+/** 例年比ペース（今月）: このままいけば今月末の累計が例年平均とどれくらい差がつくか */
 async function buildPaceMonth(
   pace: NonNullable<Awaited<ReturnType<typeof getPaceData>>>,
   baseYears: number[],
   opt: ExportOptions
 ) {
   const m = pace.month;
-  const calc = monthBand(pace, baseYears);
-  const period = m.day >= m.daysInMonth ? `${m.month}月` : `${m.month}月1〜${m.day}日`;
-  const title = `例年比ペース（${pace.year}年${period}）`;
+  const proj = monthProjection(pace, baseYears);
+  const done = m.day >= m.daysInMonth;
+  const title = `例年比ペース（${pace.year}年${m.month}月末の${done ? "累計" : "見込み"}）`;
   const parts: string[] = [];
 
   if (opt.prompt) {
     parts.push(
       "# 家計の分析をお願いします",
-      `## 知りたいこと\n${pace.year}年${period}の支出が、例年の${m.month}月の同じ日までと比べて多い／少ないか。その要因と、今月の残りの過ごし方や生活の見直しを提案してください。`,
+      `## 知りたいこと\nこのままいくと、${pace.year}年${m.month}月末の支出累計（1月から）が例年と比べてどれくらい多く／少なくなりそうか。差が広がる要因と、今月の残りの過ごし方を提案してください。`,
       PREMISE,
-      `- 比較対象の年: ${baseYears.join("、")}年`
+      `- 比較対象の年: ${baseYears.join("、")}年`,
+      `- 今月の見込み = 今年の${m.month}/${m.day}までの支出 + 例年の${m.month}/${m.day + 1}〜月末の支出の平均`
     );
   }
   if (opt.aggregate) {
     parts.push(
-      `## ${period}の支出`,
-      `今年 ${n(calc.current)} 円 / 例年平均 ${n(calc.avg)} 円（幅 ${n(calc.min)}〜${n(calc.max)} 円）`,
-      table(["年", `${period}の支出`], [[`${pace.year}`, calc.current], ...calc.perYear.map((p) => [`${p.year}`, p.amount])]),
-      "## カテゴリ別",
+      "## 累計の例年平均との差",
+      `- ${m.month === 1 ? "年初" : `${m.month - 1}月末`}: ${n(proj.startGap)} 円`,
+      `- ${m.month}月末${done ? "" : "（見込み）"}: ${n(proj.endGap)} 円（今月で ${n(proj.change)} 円${proj.change > 0 ? "広がる" : "縮まる"}）`,
+      "## 今月の支出",
+      `今月ここまで ${n(proj.soFar)} 円 / 残りの見込み ${n(proj.restAvg)} 円 / 今月の見込み ${n(proj.projectedMonth)} 円 / 例年の${m.month}月平均 ${n(proj.avgMonth)} 円`,
+      `## カテゴリ別（${m.month}月の見込みと例年の${m.month}月）`,
       table(
-        ["カテゴリ", `${pace.year}年`, ...baseYears.map((y) => `${y}年`), "例年平均", "幅からの差"],
-        calc.categories
+        ["カテゴリ", "今月の見込み", "例年平均", "例年の幅", "幅からの差"],
+        proj.categories
           .sort((a, b) => b.current - a.current)
-          .map((c) => [
-            c.category,
-            c.current,
-            ...baseYears.map((y) => m.categories.find((x) => x.category === c.category)?.byYear[y] ?? 0),
-            c.avg,
-            c.outside === 0 ? "範囲内" : (c.outside > 0 ? "+" : "") + n(c.outside),
-          ])
+          .map((c) => [c.category, c.current, c.avg, `${n(c.min)}〜${n(c.max)}`, c.outside === 0 ? "範囲内" : (c.outside > 0 ? "+" : "") + n(c.outside)])
       )
     );
   }
   if (opt.related || opt.all) {
-    const outsideCats = calc.categories.filter((c) => c.outside > 0).map((c) => c.category);
-    const cats = opt.all ? undefined : outsideCats;
+    const outsideCats = proj.categories.filter((c) => c.outside > 0).map((c) => c.category);
     const txs =
       opt.all || outsideCats.length
-        ? await getConsumptionTransactions({ fromYm: ymKey(pace.year, m.month), toYm: ymKey(pace.year, m.month), categories: cats })
+        ? await getConsumptionTransactions({
+            fromYm: ymKey(pace.year, m.month),
+            toYm: ymKey(pace.year, m.month),
+            categories: opt.all ? undefined : outsideCats,
+          })
         : [];
-    parts.push(opt.all ? `## ${pace.year}年${m.month}月のすべての明細` : "## 例年の幅を上回ったカテゴリの明細", txTable(txs));
+    parts.push(opt.all ? `## ${pace.year}年${m.month}月のすべての明細` : "## 例年の幅を上回りそうなカテゴリの明細", txTable(txs));
   }
   return { title, markdown: parts.filter(Boolean).join("\n\n") + "\n" };
 }

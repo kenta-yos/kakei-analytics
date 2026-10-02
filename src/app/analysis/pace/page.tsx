@@ -5,7 +5,7 @@ import LineChart, { MonthAxis } from "@/components/charts/LineChart";
 import { Card, CardTitle, ErrorBox, Legend, Loading, Page, Segmented, Skeleton, useApi } from "@/components/ui/kit";
 import { ChevronDown } from "@/components/ui/icons";
 import { num, yen } from "@/lib/format";
-import { monthBand, paceBand, type CategoryBand, type PaceData } from "@/lib/pace";
+import { monthProjection, paceBand, type CategoryBand, type PaceData } from "@/lib/pace";
 
 const STORAGE_KEY = "pace.excludedYears";
 const SCOPE_KEY = "pace.scope";
@@ -62,7 +62,7 @@ export default function PacePage() {
   const baseYears = candidates.filter((y) => !excluded.includes(y));
   const key = baseYears.join(",");
   const calc = useMemo(() => (data ? paceBand(data, baseYears) : null), [data, key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const mcalc = useMemo(() => (data ? monthBand(data, baseYears) : null), [data, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mcalc = useMemo(() => (data ? monthProjection(data, baseYears) : null), [data, key]); // eslint-disable-line react-hooks/exhaustive-deps
   const categories = scope === "year" ? calc?.categories : mcalc?.categories;
 
   const exportQuery = data ? `view=pace&scope=${scope}&years=${key}` : null;
@@ -85,7 +85,7 @@ export default function PacePage() {
           {scope === "year" ? (
             <Headline data={data} calc={calc} hasBase={baseYears.length > 0} />
           ) : (
-            <MonthHeadline data={data} calc={mcalc} hasBase={baseYears.length > 0} />
+            <MonthHeadline data={data} proj={mcalc} hasBase={baseYears.length > 0} />
           )}
 
           <Card className="flex flex-col gap-2.5">
@@ -126,6 +126,7 @@ export default function PacePage() {
                       year={data.year}
                       month={scope === "month" ? data.month.month : undefined}
                       months={scope === "year" ? data.upToMonth : 1}
+                      projected={scope === "month"}
                       c={c}
                       open={open === c.category}
                       onToggle={() => setOpen(open === c.category ? null : c.category)}
@@ -237,43 +238,55 @@ function Tile({ label, diff, rows }: { label: string; diff: number; rows: [strin
   );
 }
 
-function MonthHeadline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<typeof monthBand>; hasBase: boolean }) {
+function MonthHeadline({ data, proj, hasBase }: { data: PaceData; proj: ReturnType<typeof monthProjection>; hasBase: boolean }) {
   const m = data.month;
-  const above = calc.current - calc.max;
-  const below = calc.min - calc.current;
-  const rows = [{ year: data.year, amount: calc.current, now: true }, ...calc.perYear.map((p) => ({ ...p, now: false })).reverse()];
-  const max = Math.max(1, ...rows.map((r) => r.amount));
-  const period = m.day >= m.daysInMonth ? `${m.month}月` : `${m.month}月1〜${m.day}日`;
+  const done = m.day >= m.daysInMonth;
+  const prevMonth = m.month === 1 ? 12 : m.month - 1;
+  const above = proj.endCum - proj.endBand.max;
+  const below = proj.endBand.min - proj.endCum;
+  const gapText = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}¥${num(Math.abs(v))}`;
+  const tone = (v: number) => (v > 0 ? "text-over" : "text-accent");
 
   return (
-    <Card className="flex flex-col gap-2.5">
+    <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="lbl">{period} · 例年の同じ日までと比較</span>
+        <span className="lbl">
+          {m.month}月末の{done ? "累計（確定）" : "見込み"} · 例年平均との差
+        </span>
         {hasBase && <Status above={above} below={below} />}
       </div>
       {!hasBase ? (
         <div className="text-lg font-bold">比べる年を選んでください</div>
       ) : (
-        <Tile
-          label={period}
-          diff={calc.current - calc.avg}
-          rows={[
-            ["今年", num(calc.current)],
-            ["例年", num(calc.avg)],
-          ]}
-        />
-      )}
-      <div className="flex flex-col gap-2 pt-1">
-        {rows.map((r) => (
-          <div key={r.year} className="grid grid-cols-[44px_minmax(0,1fr)_84px] items-center gap-2">
-            <span className={`text-[13px] ${r.now ? "font-bold" : "text-sub"}`}>{r.year}</span>
-            <div className="h-2.5 overflow-hidden rounded-[5px] bg-ground">
-              <div className={`h-full rounded-[5px] ${r.now ? "bg-over-fill" : "bg-faint"}`} style={{ width: `${(r.amount / max) * 100}%` }} />
-            </div>
-            <span className={`text-right text-[13px] ${r.now ? "font-bold" : "text-sub"}`}>{num(r.amount)}</span>
+        <>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1.5">
+            <span className="text-sm text-sub">{m.month === 1 ? "年初" : `${prevMonth}月末`}の累計</span>
+            <span className={`text-right text-base font-bold ${tone(proj.startGap)}`}>{gapText(proj.startGap)}</span>
+            <span className="text-sm font-bold">
+              {m.month}月末{done ? "" : "の見込み"}
+            </span>
+            <span className={`text-right text-[26px] font-bold leading-tight ${tone(proj.endGap)}`}>{gapText(proj.endGap)}</span>
           </div>
-        ))}
-      </div>
+          <div className={`rounded-[10px] px-3 py-2.5 text-sm font-bold ${proj.change > 0 ? "bg-over-soft text-over" : "bg-accent-soft text-accent"}`}>
+            {m.month}月で差が ¥{num(Math.abs(proj.change))} {proj.change > 0 ? "広がる" : "縮まる"}
+            {done ? "" : "見込み"}
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-t border-line2 pt-2.5 text-[13px]">
+            <span className="text-sub">今月ここまで（{m.month}/{m.day}まで）</span>
+            <span className="text-right font-bold">{yen(proj.soFar)}</span>
+            {!done && (
+              <>
+                <span className="text-sub">残りの見込み（例年の平均）</span>
+                <span className="text-right">{yen(proj.restAvg)}</span>
+              </>
+            )}
+            <span className="text-sub">{m.month}月の{done ? "支出" : "見込み"}</span>
+            <span className="text-right font-bold">{yen(proj.projectedMonth)}</span>
+            <span className="text-sub">例年の{m.month}月（平均）</span>
+            <span className="text-right">{yen(proj.avgMonth)}</span>
+          </div>
+        </>
+      )}
     </Card>
   );
 }
@@ -282,6 +295,7 @@ function CategoryRow({
   year,
   month,
   months,
+  projected,
   c,
   open,
   onToggle,
@@ -290,6 +304,8 @@ function CategoryRow({
   month?: number;
   /** 何か月分の累計か（1 なら月あたりは出さない） */
   months: number;
+  /** 今年の値が今月末の見込みか */
+  projected?: boolean;
   c: CategoryBand;
   open: boolean;
   onToggle: () => void;
@@ -334,7 +350,7 @@ function CategoryRow({
           />
         </div>
         <div className="lbl">
-          今年 {yen(c.current)} · 例年 {yen(c.min)}〜{num(c.max)}
+          {projected ? "今月末の見込み" : "今年"} {yen(c.current)} · 例年 {yen(c.min)}〜{num(c.max)}
           {months > 1 && ` · 月平均 今年 ${num(c.current / months)} / 例年 ${num(c.avg / months)}`}
         </div>
       </button>
