@@ -193,7 +193,11 @@ export const fireSettings = pgTable("fire_settings", {
   inflationReviewedOn: date("inflation_reviewed_on"), // 前提条件（インフレ率など）を最後に見直した日
   endAge: integer("end_age").notNull().default(95), // 何歳まで資産で暮らせればいいか
   retirementIncome: integer("retirement_income").notNull().default(0), // リタイア後の年金以外の月収入（副収入など）
-  pensionMonthly: integer("pension_monthly").notNull().default(0), // 年金の月額
+  pensionMonthly: integer("pension_monthly").notNull().default(0), // 未使用（定期便の値から計算するようにしたため）
+  pensionBasicAnnual: integer("pension_basic_annual").notNull().default(0), // ねんきん定期便: 老齢基礎年金（これまでの加入実績）
+  pensionMonths: integer("pension_months").notNull().default(0), // ねんきん定期便: 年金加入期間の合計（月）
+  pensionKoseiAnnual: integer("pension_kosei_annual").notNull().default(0), // ねんきん定期便: 老齢厚生年金（これまでの加入実績）
+  pensionSalary: integer("pension_salary").notNull().default(0), // ねんきん定期便: 直近の標準報酬月額
   pensionStartAge: integer("pension_start_age").notNull().default(65), // 年金の受給開始年齢
   targetRetireAge: integer("target_retire_age").notNull().default(50), // 逆算: 何歳でリタイアしたいか
   updatedAt: timestamp("updated_at").defaultNow(),

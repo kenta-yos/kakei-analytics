@@ -3,6 +3,7 @@
  *
  * 必要な資産: リタイアした時点から「何歳まで」の各月、(月の支出 − 年金以外の月収入 − 年金) を取り崩し、
  *            残りは実質利回りで運用し続けて、ちょうど使い切る額。年金は受給開始年齢から差し引く。
+ * 年金:       ねんきん定期便の加入実績から、リタイアする年齢に応じて計算する（pensionAt）。
  * 資産の推移: 原資（現金・利回りなし）に毎月の追加を足し、原資から投信・iDeCo へ移す。
  *            運用中の資産には実質利回り（利回り − インフレ率）を乗せる。
  */
@@ -16,22 +17,51 @@ export type Plan = {
   inflation: number; // %
   endAge: number; // 何歳まで暮らせればいいか
   retirementIncome: number; // リタイア後の年金以外の月収入
-  pensionMonthly: number; // 年金の月額
   pensionStartAge: number; // 年金の受給開始年齢
   targetRetireAge: number; // 逆算: 何歳でリタイアしたいか
+  // ねんきん定期便の「これまでの加入実績」
+  pensionBasicAnnual: number; // 老齢基礎年金（年額）
+  pensionMonths: number; // 加入期間の合計（月）
+  pensionKoseiAnnual: number; // 老齢厚生年金（年額）
+  pensionSalary: number; // 直近の標準報酬月額
+  nowAgeMonths: number; // 今の年齢（月単位）
 };
 
 const realMonthlyRate = (p: Plan) => (p.returnRate - p.inflation) / 100 / 12;
+
+/** 老齢基礎年金の満額に必要な加入月数（20〜60歳の40年） */
+const FULL_BASIC_MONTHS = 480;
+/** 老齢厚生年金の報酬比例部分の給付乗率（平成15年4月以降） */
+const KOSEI_RATE = 5.481 / 1000;
+
+/**
+ * リタイアする年齢（月単位）ごとの年金の月額。
+ * - 老齢基礎年金: リタイア後も 60歳まで国民年金を納める前提（満額＝定期便の額 ÷ 加入月数 × 480）
+ * - 老齢厚生年金: リタイアするまで厚生年金に入り続け、標準報酬月額 × 5.481/1000 ずつ増える（賞与は含めない）
+ * - 受給開始が65歳より早ければ 1か月 0.4% 減、遅ければ 1か月 0.7% 増（75歳まで）
+ */
+export function pensionAt(retireAgeMonths: number, p: Plan) {
+  if (p.pensionMonths <= 0) return 0;
+  const monthsTo60 = Math.max(0, 60 * 12 - p.nowAgeMonths);
+  const basicMonths = Math.min(FULL_BASIC_MONTHS, p.pensionMonths + monthsTo60);
+  const basic = (p.pensionBasicAnnual / p.pensionMonths) * basicMonths;
+  const workMonths = Math.max(0, Math.min(retireAgeMonths, 70 * 12) - p.nowAgeMonths);
+  const kosei = p.pensionKoseiAnnual + p.pensionSalary * KOSEI_RATE * workMonths;
+  const start = Math.min(75, Math.max(60, p.pensionStartAge));
+  const factor = start < 65 ? 1 - 0.004 * (65 - start) * 12 : 1 + 0.007 * (start - 65) * 12;
+  return ((basic + kosei) * factor) / 12;
+}
 
 /** 年齢（月単位）でリタイアしたときに必要な資産。各月の取り崩しを今の価値に割り引いて足し合わせる */
 export function requiredAt(ageMonths: number, p: Plan) {
   const end = p.endAge * 12;
   const r = realMonthlyRate(p);
   const base = p.annualExpense / 12 - p.retirementIncome;
+  const pension = pensionAt(ageMonths, p);
   let total = 0;
   let discount = 1;
   for (let m = ageMonths; m < end; m++) {
-    const net = base - (m >= p.pensionStartAge * 12 ? p.pensionMonthly : 0);
+    const net = base - (m >= p.pensionStartAge * 12 ? pension : 0);
     if (net > 0) total += net * discount;
     discount /= 1 + r;
   }

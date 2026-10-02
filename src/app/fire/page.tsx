@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Card, CardTitle, ErrorBox, Loading, Page, PageTitle, useApi } from "@/components/ui/kit";
 import { PencilIcon } from "@/components/ui/icons";
-import { ageInMonths, monthsUntilPoolEmpty, neededSaving, whenCanRetire, type Plan } from "@/lib/fire";
+import { ageInMonths, monthsUntilPoolEmpty, neededSaving, pensionAt, whenCanRetire, type Plan } from "@/lib/fire";
 import { num, yen } from "@/lib/format";
 
 type Settings = {
@@ -16,7 +16,10 @@ type Settings = {
   inflationReviewedOn: string | null;
   endAge: number;
   retirementIncome: number;
-  pensionMonthly: number;
+  pensionBasicAnnual: number;
+  pensionMonths: number;
+  pensionKoseiAnnual: number;
+  pensionSalary: number;
   pensionStartAge: number;
   targetRetireAge: number;
 };
@@ -31,12 +34,16 @@ type FireData = {
 };
 
 type AutoKey = keyof FireData["auto"];
-type Field = { key: keyof Plan; name: string; unit: "円" | "%" | "歳" | "円/月"; auto?: AutoKey; note?: string };
+type InputKey = Exclude<keyof Plan, "nowAgeMonths">;
+type Field = { key: InputKey; name: string; unit: "円" | "%" | "歳" | "円/月" | "か月"; auto?: AutoKey; note?: string };
 
 const FIELDS: Field[] = [
   { key: "annualExpense", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
-  { key: "pensionMonthly", name: "年金の月額", unit: "円/月", note: "ねんきん定期便の見込額。受給開始から支出に充てる" },
-  { key: "pensionStartAge", name: "年金の受給開始年齢", unit: "歳", note: "繰り上げ・繰り下げをするならその年齢" },
+  { key: "pensionStartAge", name: "年金の受給開始年齢", unit: "歳", note: "65歳より早いと1か月0.4%減、遅いと0.7%増" },
+  { key: "pensionBasicAnnual", name: "老齢基礎年金（これまで）", unit: "円", note: "ねんきん定期便「これまでの加入実績に応じた年金額」の年額" },
+  { key: "pensionMonths", name: "年金の加入期間", unit: "か月", note: "ねんきん定期便「年金加入期間 合計」" },
+  { key: "pensionKoseiAnnual", name: "老齢厚生年金（これまで）", unit: "円", note: "ねんきん定期便「老齢厚生年金」の年額" },
+  { key: "pensionSalary", name: "標準報酬月額（直近）", unit: "円", note: "ねんきん定期便「最近の月別状況」。リタイアまでの厚生年金の増え方に使う" },
   { key: "retirementIncome", name: "年金以外の月収入", unit: "円/月", note: "副収入など。リタイア直後から支出に充てる" },
   { key: "endAge", name: "何歳まで資産で暮らすか", unit: "歳", note: "この年齢でちょうど使い切る計算" },
   { key: "targetRetireAge", name: "リタイアしたい年齢", unit: "歳", note: "逆算に使う" },
@@ -47,14 +54,14 @@ const FIELDS: Field[] = [
   { key: "inflation", name: "インフレ率（年）", unit: "%" },
 ];
 
-const OVERRIDE: Partial<Record<keyof Plan, keyof Settings>> = {
+const OVERRIDE: Partial<Record<InputKey, keyof Settings>> = {
   annualExpense: "monthlyExpenseOverride",
   fundContribution: "monthlySavingsOverride",
   ideco: "monthlyIdecoOverride",
   poolInflow: "poolInflowOverride",
 };
 
-function toPlan(d: FireData): Plan {
+function toPlan(d: FireData, nowAgeMonths: number): Plan {
   const s = d.settings;
   return {
     annualExpense: s.monthlyExpenseOverride !== null ? s.monthlyExpenseOverride * 12 : d.auto.annualExpense,
@@ -65,8 +72,12 @@ function toPlan(d: FireData): Plan {
     inflation: s.inflationRate / 100,
     endAge: s.endAge,
     retirementIncome: s.retirementIncome,
-    pensionMonthly: s.pensionMonthly,
+    pensionBasicAnnual: s.pensionBasicAnnual,
+    pensionMonths: s.pensionMonths,
+    pensionKoseiAnnual: s.pensionKoseiAnnual,
+    pensionSalary: s.pensionSalary,
     pensionStartAge: s.pensionStartAge,
+    nowAgeMonths,
     targetRetireAge: s.targetRetireAge,
   };
 }
@@ -82,7 +93,7 @@ function man(v: number) {
 
 export default function FirePage() {
   const { data, error, loading, reload } = useApi<FireData>("/api/fire");
-  const [draft, setDraft] = useState<Record<keyof Plan, string> | null>(null);
+  const [draft, setDraft] = useState<Record<InputKey, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [markReviewed, setMarkReviewed] = useState(false);
 
@@ -90,11 +101,11 @@ export default function FirePage() {
   if (loading && !data) return <Page><Loading /></Page>;
   if (!data) return null;
 
-  const p = toPlan(data);
+  const ageM = data.settings.birthDate ? ageInMonths(data.settings.birthDate, data.today) : data.age * 12;
+  const p = toPlan(data, ageM);
   const pool = data.accounts.filter((a) => a.role === "pool").reduce((s, a) => s + a.balance, 0);
   const invested = data.accounts.filter((a) => a.role === "invested").reduce((s, a) => s + a.balance, 0);
   const total = pool + invested;
-  const ageM = data.settings.birthDate ? ageInMonths(data.settings.birthDate, data.today) : data.age * 12;
   const start = { pool, invested };
 
   const forward = whenCanRetire(start, ageM, p);
@@ -124,15 +135,15 @@ export default function FirePage() {
   };
 
   function startEdit() {
-    const d = {} as Record<keyof Plan, string>;
+    const d = {} as Record<InputKey, string>;
     FIELDS.forEach((f) => (d[f.key] = f.unit.startsWith("円") ? num(p[f.key]) : String(p[f.key])));
     setDraft(d);
   }
 
   async function commit() {
     if (!draft) return;
-    const parse = (k: keyof Plan) => parseFloat(draft[k].replace(/[^0-9.\-]/g, "")) || 0;
-    const override = (k: keyof Plan) => {
+    const parse = (k: InputKey) => parseFloat(draft[k].replace(/[^0-9.\-]/g, "")) || 0;
+    const override = (k: InputKey) => {
       const value = Math.round(parse(k));
       const auto = data!.auto[FIELDS.find((f) => f.key === k)!.auto!];
       return value === auto ? null : value;
@@ -153,7 +164,10 @@ export default function FirePage() {
           poolInflowOverride: override("poolInflow"),
           endAge: Math.round(parse("endAge")),
           retirementIncome: Math.round(parse("retirementIncome")),
-          pensionMonthly: Math.round(parse("pensionMonthly")),
+          pensionBasicAnnual: Math.round(parse("pensionBasicAnnual")),
+          pensionMonths: Math.round(parse("pensionMonths")),
+          pensionKoseiAnnual: Math.round(parse("pensionKoseiAnnual")),
+          pensionSalary: Math.round(parse("pensionSalary")),
           pensionStartAge: Math.round(parse("pensionStartAge")),
           targetRetireAge: Math.round(parse("targetRetireAge")),
         }),
@@ -182,6 +196,9 @@ export default function FirePage() {
             </span>
             <span className="text-[13px] text-sub">
               そのとき必要な資産 {man(forward.required)}（{p.endAge}歳まで）
+            </span>
+            <span className="text-[13px] text-sub">
+              年金 月 {yen(pensionAt(forward.ageMonths, p))}（{p.pensionStartAge}歳から）
             </span>
           </>
         ) : (
@@ -212,6 +229,9 @@ export default function FirePage() {
               <span className="lbl">いまのペースだと {man(reverse.projected)}</span>
             </div>
           </div>
+          <span className="lbl">
+            {p.targetRetireAge}歳でリタイアした場合の年金 月 {yen(pensionAt(p.targetRetireAge * 12, p))}（{p.pensionStartAge}歳から）
+          </span>
           <p className="lbl leading-relaxed">
             毎月の積立＝原資（ゆうちょ投資用・SBI証券）に新しく入れるお金。いまの投信・iDeCo への積立に上乗せして、すべて運用に回す前提です。
           </p>
@@ -318,6 +338,9 @@ export default function FirePage() {
           <li>
             <b>必要な資産：</b>リタイアした時点から{p.endAge}歳まで、毎月「支出 − 年金以外の月収入」を取り崩し（{p.pensionStartAge}
             歳からは年金の分だけ少なくなる）、残りは運用し続けて、{p.endAge}歳でちょうど使い切る額。早くリタイアするほど期間が長く、必要な資産は大きくなります。
+          </li>
+          <li>
+            <b>年金：</b>ねんきん定期便のこれまでの加入実績をもとに、リタイアする年齢で計算。リタイアまでは厚生年金が増え続け、リタイア後も60歳まで国民年金を納める前提（基礎年金は満額）。受給開始が65歳より早ければ減額、遅ければ増額。
           </li>
           <li>
             <b>資産の増え方：</b>毎月、原資に追加分を足し、原資から投信・iDeCo へ積み立てる。運用中のお金には実質利回り（利回り − インフレ率 ＝ 年

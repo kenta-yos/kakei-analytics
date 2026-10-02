@@ -115,7 +115,10 @@ export async function GET() {
       inflationReviewedOn: (s?.reviewed as string | null) ?? null,
       endAge: Number(s?.end_age ?? 95),
       retirementIncome: Number(s?.retirement_income ?? 0),
-      pensionMonthly: Number(s?.pension_monthly ?? 0),
+      pensionBasicAnnual: Number(s?.pension_basic_annual ?? 0),
+      pensionMonths: Number(s?.pension_months ?? 0),
+      pensionKoseiAnnual: Number(s?.pension_kosei_annual ?? 0),
+      pensionSalary: Number(s?.pension_salary ?? 0),
       pensionStartAge: Number(s?.pension_start_age ?? 65),
       targetRetireAge: Number(s?.target_retire_age ?? 50),
     };
@@ -204,7 +207,10 @@ export async function POST(req: NextRequest) {
       inflationReviewedOn: reviewed,
       endAge: b.endAge ?? 95,
       retirementIncome: b.retirementIncome ?? 0,
-      pensionMonthly: b.pensionMonthly ?? 0,
+      pensionBasicAnnual: b.pensionBasicAnnual ?? 0,
+      pensionMonths: b.pensionMonths ?? 0,
+      pensionKoseiAnnual: b.pensionKoseiAnnual ?? 0,
+      pensionSalary: b.pensionSalary ?? 0,
       pensionStartAge: b.pensionStartAge ?? 65,
       targetRetireAge: b.targetRetireAge ?? 50,
     };

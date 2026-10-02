@@ -64,6 +64,13 @@
       "when": 1790923095101,
       "tag": "0008_fire_pension",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790923339881,
+      "tag": "0009_fire_pension_record",
+      "breakpoints": true
     }
   ]
 }
