@@ -43,11 +43,18 @@ export async function getPaceData(): Promise<PaceData | null> {
   for (const r of data) {
     if (!yearMap.has(r.year)) yearMap.set(r.year, Array(12).fill(0));
     yearMap.get(r.year)![r.month - 1] += r.amount;
-    if (r.month <= latest.month) {
+    // カテゴリ別の累計: 対象の月より前は1か月分まるごと、対象の月は同じ日までの分（下で足す）
+    if (r.month < latest.month) {
       if (!catMap.has(r.category)) catMap.set(r.category, {});
       const byYear = catMap.get(r.category)!;
       byYear[r.year] = (byYear[r.year] ?? 0) + r.amount;
     }
+  }
+
+  for (const r of monthData) {
+    if (!catMap.has(r.category)) catMap.set(r.category, {});
+    const byYear = catMap.get(r.category)!;
+    byYear[r.year] = (byYear[r.year] ?? 0) + r.amount;
   }
 
   return {

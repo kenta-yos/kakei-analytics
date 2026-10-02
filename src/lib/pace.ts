@@ -8,7 +8,7 @@ export type PaceData = {
   latestDate: string;
   /** 年ごとの月別支出（index 0 = 1月） */
   years: { year: number; monthly: number[] }[];
-  /** カテゴリごとの、各年 1月〜upToMonth の累計 */
+  /** カテゴリごとの、各年 1月1日〜upToMonth の同じ日までの累計 */
   categories: ByYear;
   /** 今月（最新データの月）の、各年の同じ月・同じ日までの支出 */
   month: {
@@ -45,12 +45,16 @@ export function categoryBand(cats: ByYear, year: number, baseYears: number[]) {
 
 export type CategoryBand = ReturnType<typeof categoryBand>[number];
 
-/** 年初からの累計: 選んだ年の幅（最小〜最大）と平均 */
+/** 年初からの累計: 選んだ年の幅と平均（対象の月は同じ日まで） */
 export function paceBand(pace: PaceData, baseYears: number[]) {
   const base = pace.years.filter((y) => baseYears.includes(y.year));
   const cumulative = (monthly: number[]) => monthly.reduce<number[]>((acc, v, i) => [...acc, (acc[i - 1] ?? 0) + v], []);
   const baseCum = base.map((y) => cumulative(y.monthly));
   const band = Array.from({ length: 12 }, (_, i) => stats(baseCum.map((c) => c[i])));
+  // 対象の月は、過去の年も同じ日までで比べる（1か月まるごとだと月の途中で今年が少なく見えるため）
+  const m = pace.upToMonth - 1;
+  const toDay = (y: { year: number; monthly: number[] }) => (m > 0 ? cumulative(y.monthly)[m - 1] : 0) + (pace.month.totals[y.year] ?? 0);
+  band[m] = stats(base.map(toDay));
   const current = pace.years.find((y) => y.year === pace.year);
   const currentCum = current ? cumulative(current.monthly).slice(0, pace.upToMonth) : [];
 
