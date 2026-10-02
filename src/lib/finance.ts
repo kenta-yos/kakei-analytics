@@ -148,12 +148,13 @@ export async function getAssetSeries() {
     SELECT asset_name, (year * 100 + month) AS ym, closing_balance
     FROM asset_snapshots ORDER BY ym
   `);
-  if (r.length === 0) return new Map<number, { net: number; byType: Record<string, number> }>();
+  type Point = { net: number; byType: Record<string, number>; byAsset: Record<string, { type: string; balance: number }> };
+  if (r.length === 0) return new Map<number, Point>();
 
   const first = Number(r[0].ym);
   const last = Number(r[r.length - 1].ym);
   const latest = new Map<string, { type: string; balance: number }>();
-  const series = new Map<number, { net: number; byType: Record<string, number> }>();
+  const series = new Map<number, Point>();
 
   let i = 0;
   for (let y = Math.floor(first / 100), m = first % 100; ymKey(y, m) <= last; m === 12 ? (y++, (m = 1)) : m++) {
@@ -164,12 +165,14 @@ export async function getAssetSeries() {
       i++;
     }
     const byType: Record<string, number> = {};
+    const byAsset: Point["byAsset"] = {};
     let net = 0;
-    latest.forEach(({ type, balance }) => {
+    latest.forEach(({ type, balance }, name) => {
       byType[type] = (byType[type] ?? 0) + balance;
+      byAsset[name] = { type, balance };
       net += balance;
     });
-    series.set(key, { net, byType });
+    series.set(key, { net, byType, byAsset });
   }
   return series;
 }

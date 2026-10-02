@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
     // 資産のスナップショットがない月は、その時点より前で最新の値を使う
     const assetKeys = Array.from(assets.keys()).sort((a, b) => a - b);
     const assetAt = (ym: number) => {
-      let found: { net: number; byType: Record<string, number> } | null = null;
+      let found: ReturnType<typeof assets.get> | null = null;
       for (const k of assetKeys) {
         if (k > ym) break;
         found = assets.get(k)!;
@@ -111,6 +111,15 @@ export async function GET(req: NextRequest) {
           label: ASSET_GROUP_LABELS[t] ?? t,
           value: end?.byType[t] ?? 0,
           change: (end?.byType[t] ?? 0) - (start?.byType[t] ?? 0),
+          // 口座ごとの内訳（名称は元の CSV のまま）
+          accounts: Array.from(new Set([...Object.keys(end?.byAsset ?? {}), ...Object.keys(start?.byAsset ?? {})]))
+            .filter((name) => (end?.byAsset[name]?.type ?? start?.byAsset[name]?.type) === t)
+            .map((name) => {
+              const value = end?.byAsset[name]?.balance ?? 0;
+              return { name, value, change: value - (start?.byAsset[name]?.balance ?? 0) };
+            })
+            .filter((x) => x.value !== 0 || x.change !== 0)
+            .sort((x, y) => y.value - x.value),
         }))
         .filter((b) => b.value !== 0 || b.change !== 0)
         .sort((a, b) => Object.keys(ASSET_GROUP_LABELS).indexOf(a.type) - Object.keys(ASSET_GROUP_LABELS).indexOf(b.type));

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import { Card, CardTitle, ErrorBox, Legend, Loading, Page, PageTitle, Segmented, useApi } from "@/components/ui/kit";
+import { ChevronDown } from "@/components/ui/icons";
 import { signed, yen } from "@/lib/format";
 
 type Mode = "month" | "quarter" | "year";
@@ -20,7 +21,7 @@ type Period = {
   netAssets: number | null;
   change: number | null;
   other: number | null;
-  breakdown: { type: string; label: string; value: number; change: number }[];
+  breakdown: { type: string; label: string; value: number; change: number; accounts: { name: string; value: number; change: number }[] }[];
 };
 
 type KessanData = {
@@ -38,6 +39,7 @@ export default function KessanPage() {
   const [mode, setMode] = useState<Mode>("month");
   const { data, error, loading } = useApi<KessanData>(`/api/kessan?mode=${mode}`);
   const [sel, setSel] = useState<number | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   useEffect(() => setSel(null), [mode]);
 
@@ -82,15 +84,41 @@ export default function KessanPage() {
               <span>{periods[periods.length - 1]?.label}</span>
             </div>
             <div className="flex flex-col border-t border-line2">
-              {p.breakdown.map((b) => (
-                <div key={b.type} className="flex items-baseline justify-between border-b border-line2 py-2.5">
-                  <span className="text-sm">{b.label}</span>
-                  <span className="text-right">
-                    <span className="text-sm font-bold">{yen(b.value)}</span>
-                    <span className={`ml-1.5 text-xs font-medium ${b.change >= 0 ? "text-accent" : "text-over"}`}>{signed(b.change)}</span>
-                  </span>
-                </div>
-              ))}
+              {p.breakdown.map((b) => {
+                const isOpen = openGroup === b.type;
+                return (
+                  <div key={b.type} className="border-b border-line2">
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenGroup(isOpen ? null : b.type)}
+                      className="flex min-h-11 w-full items-center justify-between gap-2 py-2.5 text-left"
+                    >
+                      <span className="flex items-center gap-1 text-sm">
+                        {b.label}
+                        <ChevronDown size={14} className={`text-sub transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </span>
+                      <span className="text-right">
+                        <span className="text-sm font-bold">{yen(b.value)}</span>
+                        <span className={`ml-1.5 text-xs font-medium ${b.change >= 0 ? "text-accent" : "text-over"}`}>{signed(b.change)}</span>
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="mb-2.5 flex flex-col gap-1.5 rounded-[10px] bg-panel px-3 py-2.5">
+                        {b.accounts.map((a) => (
+                          <div key={a.name} className="flex items-baseline justify-between gap-2 text-[13px]">
+                            <span className="min-w-0">{a.name}</span>
+                            <span className="shrink-0 text-right">
+                              <span className="font-bold">{yen(a.value)}</span>
+                              <span className={`ml-1.5 text-xs ${a.change === 0 ? "text-mute" : a.change > 0 ? "text-accent" : "text-over"}`}>{signed(a.change)}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </Card>
 
