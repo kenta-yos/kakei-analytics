@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AnalysisHeader from "@/components/analysis/AnalysisHeader";
 import LineChart, { MonthAxis } from "@/components/charts/LineChart";
-import { Card, CardTitle, ErrorBox, Legend, Loading, Page, useApi } from "@/components/ui/kit";
+import { Card, CardTitle, ErrorBox, Legend, Loading, Page, Skeleton, useApi } from "@/components/ui/kit";
 import { ChevronDown } from "@/components/ui/icons";
 import { num, yen } from "@/lib/format";
 import { paceBand, type PaceData } from "@/lib/pace";
@@ -228,7 +228,13 @@ function CategoryRow({
       {open && (
         <div className="mb-3 flex flex-col gap-2 rounded-[10px] bg-panel px-3 py-2.5">
           <span className="lbl">{year}年の明細（金額の大きい順）</span>
-          {!txs && <span className="text-[13px] text-sub">読み込み中…</span>}
+          {!txs && (
+            <div className="flex flex-col gap-2" role="status" aria-label="読み込み中">
+              <Skeleton className="h-3.5 w-full" />
+              <Skeleton className="h-3.5 w-5/6" />
+              <Skeleton className="h-3.5 w-2/3" />
+            </div>
+          )}
           {txs?.length === 0 && <span className="text-[13px] text-sub">明細はありません</span>}
           {txs?.map((t) => (
             <div key={t.id} className="flex justify-between gap-2 text-[13px]">

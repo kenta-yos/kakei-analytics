@@ -65,8 +65,24 @@ export function CardTitle({ children, right }: { children: React.ReactNode; righ
   );
 }
 
-export function Loading() {
-  return <div className="py-16 text-center text-sm text-sub">読み込み中…</div>;
+/** グレーの帯（読み込み中のプレースホルダー） */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`rounded-md bg-line2 motion-safe:animate-pulse ${className}`} />;
+}
+
+/** 読み込み中: 画面の形をしたスケルトン */
+export function Loading({ cards = 3 }: { cards?: number }) {
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-label="読み込み中">
+      {Array.from({ length: cards }, (_, i) => (
+        <div key={i} className="card flex flex-col gap-3 p-4">
+          <Skeleton className="h-3.5 w-1/3" />
+          <Skeleton className={i === 0 ? "h-8 w-1/2" : "h-24 w-full"} />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ErrorBox({ message }: { message: string }) {

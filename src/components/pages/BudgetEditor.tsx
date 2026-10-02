@@ -45,7 +45,7 @@ export default function BudgetEditor({ year, month }: { year: number; month: num
   const hiddenCount = rows.length - rows.filter(isActive).length;
 
   if (error) return <div className="p-4"><ErrorBox message={error} /></div>;
-  if (loading && !data) return <Loading />;
+  if (loading && !data) return <div className="mx-auto max-w-[720px] px-4 pt-12 lg:pt-8"><Loading /></div>;
   if (!data) return null;
 
   const allocated = Object.values(alloc).reduce((s, v) => s + v, 0);
