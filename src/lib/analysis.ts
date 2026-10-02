@@ -71,16 +71,6 @@ export async function getPaceData(): Promise<PaceData | null> {
       daysInMonth: new Date(latest.year, latest.month, 0).getDate(),
       totals: monthTotals,
       categories: Array.from(monthCats.entries()).map(([category, byYear]) => ({ category, byYear })),
-      fullCategories: Array.from(
-        data
-          .filter((r) => r.month === latest.month)
-          .reduce((map, r) => {
-            if (!map.has(r.category)) map.set(r.category, {});
-            map.get(r.category)![r.year] = r.amount;
-            return map;
-          }, new Map<string, Record<number, number>>())
-          .entries()
-      ).map(([category, byYear]) => ({ category, byYear })),
     },
   };
 }

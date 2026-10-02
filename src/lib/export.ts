@@ -5,7 +5,7 @@
 import { BONUS_CATEGORY } from "@/lib/categories";
 import { getConsumptionTransactions, type TxItem } from "@/lib/finance";
 import { BIG_THRESHOLD, getBonusData, getPaceData, getUpcomingData, getWhyData } from "@/lib/analysis";
-import { monthProjection, paceBand } from "@/lib/pace";
+import { monthProgress, paceBand } from "@/lib/pace";
 import { ymKey } from "@/lib/format";
 
 export type ExportView = "pace" | "why" | "bonus" | "upcoming";
@@ -244,45 +244,45 @@ export async function buildExport(view: ExportView, opt: ExportOptions): Promise
   return { title, markdown: parts.filter(Boolean).join("\n\n") + "\n" };
 }
 
-/** 例年比ペース（今月）: このままいけば今月末の累計が例年平均とどれくらい差がつくか */
+/** 例年比ペース（今月）: その時点までの累計と今月分を、例年の同じ期間と比べる */
 async function buildPaceMonth(
   pace: NonNullable<Awaited<ReturnType<typeof getPaceData>>>,
   baseYears: number[],
   opt: ExportOptions
 ) {
   const m = pace.month;
-  const proj = monthProjection(pace, baseYears);
+  const prog = monthProgress(pace, baseYears);
   const done = m.day >= m.daysInMonth;
-  const title = `例年比ペース（${pace.year}年${m.month}月末の${done ? "累計" : "見込み"}）`;
+  const period = done ? `${m.month}月` : `${m.month}月1〜${m.day}日`;
+  const title = `例年比ペース（${pace.year}年${period}）`;
   const parts: string[] = [];
 
   if (opt.prompt) {
     parts.push(
       "# 家計の分析をお願いします",
-      `## 知りたいこと\nこのままいくと、${pace.year}年${m.month}月末の支出累計（1月から）が例年と比べてどれくらい多く／少なくなりそうか。差が広がる要因と、今月の残りの過ごし方を提案してください。`,
+      `## 知りたいこと\n${pace.year}年の支出の累計（1月〜${m.month}/${m.day}）が、例年の同じ時点と比べてどうか。今月（${period}）で差が広がったか縮まったか、その要因と、今月の残りの過ごし方を提案してください。`,
       PREMISE,
-      `- 比較対象の年: ${baseYears.join("、")}年`,
-      `- 今月の見込み = 今年の${m.month}/${m.day}までの支出 + 例年の${m.month}/${m.day + 1}〜月末の支出の平均`
+      `- 比較対象の年: ${baseYears.join("、")}年。例年も同じ月の同じ日までで比べています。`
     );
   }
   if (opt.aggregate) {
     parts.push(
       "## 累計の例年平均との差",
-      `- ${m.month === 1 ? "年初" : `${m.month - 1}月末`}: ${n(proj.startGap)} 円`,
-      `- ${m.month}月末${done ? "" : "（見込み）"}: ${n(proj.endGap)} 円（今月で ${n(proj.change)} 円${proj.change > 0 ? "広がる" : "縮まる"}）`,
-      "## 今月の支出",
-      `今月ここまで ${n(proj.soFar)} 円 / 残りの見込み ${n(proj.restAvg)} 円 / 今月の見込み ${n(proj.projectedMonth)} 円 / 例年の${m.month}月平均 ${n(proj.avgMonth)} 円`,
-      `## カテゴリ別（${m.month}月の見込みと例年の${m.month}月）`,
+      `- ${m.month === 1 ? "年初" : `${m.month - 1}月末`}: ${n(prog.startGap)} 円`,
+      `- ${done ? `${m.month}月末` : `${m.month}/${m.day}時点`}: ${n(prog.nowGap)} 円（例年の幅 ${n(prog.nowBand.min)}〜${n(prog.nowBand.max)} 円、今年 ${n(prog.nowCum)} 円）`,
+      `## 今月（${period}）`,
+      `今年 ${n(prog.soFar)} 円 / 例年の同じ期間の平均 ${n(prog.avgSoFar)} 円（差 ${n(prog.change)} 円）`,
+      `## カテゴリ別（${period}）`,
       table(
-        ["カテゴリ", "今月の見込み", "例年平均", "例年の幅", "幅からの差"],
-        proj.categories
+        ["カテゴリ", "今年", "例年平均", "例年の幅", "幅からの差"],
+        prog.categories
           .sort((a, b) => b.current - a.current)
           .map((c) => [c.category, c.current, c.avg, `${n(c.min)}〜${n(c.max)}`, c.outside === 0 ? "範囲内" : (c.outside > 0 ? "+" : "") + n(c.outside)])
       )
     );
   }
   if (opt.related || opt.all) {
-    const outsideCats = proj.categories.filter((c) => c.outside > 0).map((c) => c.category);
+    const outsideCats = prog.categories.filter((c) => c.outside > 0).map((c) => c.category);
     const txs =
       opt.all || outsideCats.length
         ? await getConsumptionTransactions({
@@ -291,7 +291,7 @@ async function buildPaceMonth(
             categories: opt.all ? undefined : outsideCats,
           })
         : [];
-    parts.push(opt.all ? `## ${pace.year}年${m.month}月のすべての明細` : "## 例年の幅を上回りそうなカテゴリの明細", txTable(txs));
+    parts.push(opt.all ? `## ${pace.year}年${m.month}月のすべての明細` : "## 例年の幅を上回ったカテゴリの明細", txTable(txs));
   }
   return { title, markdown: parts.filter(Boolean).join("\n\n") + "\n" };
 }
