@@ -90,6 +90,7 @@ export default function PacePage() {
 
           <Card className="flex flex-col gap-2.5">
             <CardTitle right={<span className="lbl">タップで除外</span>}>比べる年</CardTitle>
+            <p className="lbl -mt-1.5">例年の幅＝比べる年の平均 ± 標準偏差（ばらつき）。おおよそ3年に2年はこの範囲に入ります。</p>
             <div className="flex flex-wrap gap-1.5">
               {candidates.map((y) => {
                 const ex = excluded.includes(y);

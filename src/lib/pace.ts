@@ -20,9 +20,15 @@ export type PaceData = {
   };
 };
 
+/**
+ * 例年の幅 = 比べる年の平均 ± 標準偏差（下限は 0）。
+ * 最小〜最大だと、1年だけ多い・少ない年があると幅が広がりすぎるため。
+ */
 function stats(vals: number[]) {
   if (vals.length === 0) return { min: 0, max: 0, avg: 0 };
-  return { min: Math.min(...vals), max: Math.max(...vals), avg: vals.reduce((s, v) => s + v, 0) / vals.length };
+  const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+  const sd = vals.length > 1 ? Math.sqrt(vals.reduce((s, v) => s + (v - avg) ** 2, 0) / (vals.length - 1)) : 0;
+  return { min: Math.max(0, avg - sd), max: avg + sd, avg };
 }
 
 /** カテゴリごとに、比べる年の幅と今年の位置を出す */
