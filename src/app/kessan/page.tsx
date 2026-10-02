@@ -76,11 +76,15 @@ export default function KessanPage() {
               height={150}
               series={[{ values: periods.map((x) => x.netAssets), color: "#1F5F8B", area: true, endDot: true }]}
               markers={sel !== null ? [{ index: idx, label: p.shortLabel }] : []}
+              onSelect={setSel}
+              selected={idx}
+              pointLabels={periods.map((x) => x.label)}
               ariaLabel={`純資産の推移。${periods[0]?.label}から${periods[periods.length - 1]?.label}まで`}
               yMin={Math.min(...periods.map((x) => x.netAssets ?? Infinity)) * 0.95}
             />
             <div className="flex justify-between text-xs text-sub">
               <span>{periods[0]?.label}</span>
+              <span className="text-mute">タップで期間を選択</span>
               <span>{periods[periods.length - 1]?.label}</span>
             </div>
             <div className="flex flex-col border-t border-line2">

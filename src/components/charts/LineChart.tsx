@@ -23,6 +23,12 @@ type Props = {
   /** 縦の目印（index） */
   markers?: { index: number; label: string }[];
   ariaLabel: string;
+  /** 指定すると、タップした位置の index を返す（期間の選択用） */
+  onSelect?: (index: number) => void;
+  /** 選択中の index（その点に丸を付ける） */
+  selected?: number | null;
+  /** onSelect 用の各点のラベル（読み上げ用） */
+  pointLabels?: string[];
 };
 
 function useWidth<T extends HTMLElement>() {
@@ -37,7 +43,19 @@ function useWidth<T extends HTMLElement>() {
   return { ref, width };
 }
 
-export default function LineChart({ xCount, series, band, height = 160, yMin, yMax, markers = [], ariaLabel }: Props) {
+export default function LineChart({
+  xCount,
+  series,
+  band,
+  height = 160,
+  yMin,
+  yMax,
+  markers = [],
+  ariaLabel,
+  onSelect,
+  selected = null,
+  pointLabels = [],
+}: Props) {
   const { ref, width } = useWidth<HTMLDivElement>();
   const top = 16;
   const bottom = 6;
@@ -107,7 +125,28 @@ export default function LineChart({ xCount, series, band, height = 160, yMin, yM
             </g>
           );
         })}
+        {selected !== null &&
+          series[0]?.values[selected] !== null &&
+          series[0]?.values[selected] !== undefined && (
+            <circle cx={x(selected)} cy={y(series[0].values[selected] as number)} r={5} fill="#fff" stroke={series[0].color} strokeWidth={2.5} />
+          )}
       </svg>
+      {onSelect && (
+        <div className="relative -mt-[1px] flex" style={{ height: 0 }}>
+          <div className="absolute inset-x-0 flex" style={{ top: -height, height }}>
+            {Array.from({ length: xCount }, (_, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-label={pointLabels[i] ? `${pointLabels[i]}を選択` : `${i + 1}番目を選択`}
+                aria-pressed={selected === i}
+                onClick={() => onSelect(i)}
+                className="h-full flex-1"
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
