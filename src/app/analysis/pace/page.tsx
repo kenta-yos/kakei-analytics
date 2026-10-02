@@ -150,59 +150,37 @@ function Headline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<ty
   const below = b.min - cur;
   const latest = data.latestDate.slice(5).replace("-", "/").replace(/^0/, "");
   const months = data.upToMonth;
-  const perMonth = (v: number) => v / months;
-  const avgGap = perMonth(cur - b.avg);
 
   return (
     <Card className="flex flex-col gap-2.5">
-      <span className="lbl">
-        1〜{months}月の支出（{latest} 時点）
-      </span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="lbl">
+          1〜{months}月 · {latest} 時点
+        </span>
+        {hasBase && <Status above={above} below={below} />}
+      </div>
       {!hasBase ? (
         <div className="text-lg font-bold">比べる年を選んでください</div>
       ) : (
-        <div className="text-lg font-bold leading-normal">
-          {above > 0 ? (
-            <>
-              累計が例年の範囲を <span className="text-over">{yen(above)} 上回る</span>ペース
-            </>
-          ) : below > 0 ? (
-            <>
-              累計が例年の範囲を <span className="text-accent">{yen(below)} 下回る</span>ペース
-            </>
-          ) : (
-            <>累計は例年の範囲内（平均より {cur >= b.avg ? "+" : "−"}{num(Math.abs(cur - b.avg))}）</>
-          )}
+        <div className="grid grid-cols-2 gap-2">
+          <Tile
+            label="月あたり"
+            diff={(cur - b.avg) / months}
+            rows={[
+              ["今年", num(cur / months)],
+              ["例年", num(b.avg / months)],
+            ]}
+          />
+          <Tile
+            label="累計"
+            diff={cur - b.avg}
+            rows={[
+              ["今年", man(cur)],
+              ["例年", man(b.avg)],
+            ]}
+          />
         </div>
       )}
-      {hasBase && (
-        <div className="rounded-[10px] bg-panel px-3 py-2.5 text-sm">
-          月あたりにすると、例年平均より{" "}
-          <b className={avgGap > 0 ? "text-over" : "text-accent"}>
-            {yen(Math.abs(avgGap))} {avgGap > 0 ? "多い" : "少ない"}
-          </b>
-          {above > 0 && <span className="text-sub">（範囲の上限より月 {yen(perMonth(above))} 多い）</span>}
-          {below > 0 && <span className="text-sub">（範囲の下限より月 {yen(perMonth(below))} 少ない）</span>}
-        </div>
-      )}
-      <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 pt-1 text-sm">
-        <span />
-        <span className="lbl text-right">累計</span>
-        <span className="lbl text-right">月平均</span>
-        <span className="font-bold">今年</span>
-        <span className="text-right font-bold">{yen(cur)}</span>
-        <span className="text-right font-bold">{yen(perMonth(cur))}</span>
-        <span className="text-sub">例年平均</span>
-        <span className="text-right">{yen(b.avg)}</span>
-        <span className="text-right">{yen(perMonth(b.avg))}</span>
-        <span className="text-sub">例年の幅</span>
-        <span className="text-right text-xs text-sub">
-          {num(b.min)}〜{num(b.max)}
-        </span>
-        <span className="text-right text-xs text-sub">
-          {num(perMonth(b.min))}〜{num(perMonth(b.max))}
-        </span>
-      </div>
       <LineChart
         xCount={12}
         height={180}
@@ -225,6 +203,39 @@ function Headline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<ty
   );
 }
 
+/** 1234567 → "123.5万" */
+function man(v: number) {
+  return `${(v / 10000).toFixed(1)}万`;
+}
+
+/** 例年の幅に対する位置 */
+function Status({ above, below }: { above: number; below: number }) {
+  const [text, cls] =
+    above > 0 ? ["範囲より多い", "bg-over-soft text-over"] : below > 0 ? ["範囲より少ない", "bg-accent-soft text-accent"] : ["例年の範囲内", "bg-line2 text-ink2"];
+  return <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${cls}`}>{text}</span>;
+}
+
+/** 例年平均との差を大きく、今年・例年を内訳に */
+function Tile({ label, diff, rows }: { label: string; diff: number; rows: [string, string][] }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-xl border border-line bg-panel p-3">
+      <span className="lbl">{label}</span>
+      <span className={`text-[22px] font-bold leading-tight ${diff > 0 ? "text-over" : "text-accent"}`}>
+        {diff > 0 ? "+" : "−"}¥{num(Math.abs(diff))}
+      </span>
+      <span className="lbl -mt-0.5">例年平均との差</span>
+      <div className="mt-1 flex flex-col gap-0.5 border-t border-line pt-1.5 text-[13px]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between">
+            <span className="text-sub">{k}</span>
+            <span className="font-bold">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MonthHeadline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<typeof monthBand>; hasBase: boolean }) {
   const m = data.month;
   const above = calc.current - calc.max;
@@ -235,39 +246,22 @@ function MonthHeadline({ data, calc, hasBase }: { data: PaceData; calc: ReturnTy
 
   return (
     <Card className="flex flex-col gap-2.5">
-      <span className="lbl">
-        {period}の支出（例年の{m.month}月の同じ日までと比較）
-      </span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="lbl">{period} · 例年の同じ日までと比較</span>
+        {hasBase && <Status above={above} below={below} />}
+      </div>
       {!hasBase ? (
         <div className="text-lg font-bold">比べる年を選んでください</div>
       ) : (
-        <div className="text-lg font-bold leading-normal">
-          {above > 0 ? (
-            <>
-              例年の範囲を <span className="text-over">{yen(above)} 上回る</span>
-            </>
-          ) : below > 0 ? (
-            <>
-              例年の範囲を <span className="text-accent">{yen(below)} 下回る</span>
-            </>
-          ) : (
-            <>例年の範囲内（平均より {calc.current >= calc.avg ? "+" : "−"}{num(Math.abs(calc.current - calc.avg))}）</>
-          )}
-        </div>
+        <Tile
+          label={period}
+          diff={calc.current - calc.avg}
+          rows={[
+            ["今年", num(calc.current)],
+            ["例年", num(calc.avg)],
+          ]}
+        />
       )}
-      <div className="grid grid-cols-2 gap-2 pt-1">
-        <div>
-          <div className="lbl">今年</div>
-          <div className="text-base font-bold">{yen(calc.current)}</div>
-        </div>
-        <div>
-          <div className="lbl">例年（平均 / 幅）</div>
-          <div className="text-base font-bold">{yen(calc.avg)}</div>
-          <div className="lbl">
-            {yen(calc.min)}〜{num(calc.max)}
-          </div>
-        </div>
-      </div>
       <div className="flex flex-col gap-2 pt-1">
         {rows.map((r) => (
           <div key={r.year} className="grid grid-cols-[44px_minmax(0,1fr)_84px] items-center gap-2">
