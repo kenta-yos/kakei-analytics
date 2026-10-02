@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
-  ASSET_TYPE_LABELS,
+  ASSET_GROUP_LABELS,
   getAssetSeries,
   getInvestmentGainByMonth,
   getLatestData,
@@ -108,12 +108,12 @@ export async function GET(req: NextRequest) {
       const breakdown = types
         .map((t) => ({
           type: t,
-          label: ASSET_TYPE_LABELS[t] ?? t,
+          label: ASSET_GROUP_LABELS[t] ?? t,
           value: end?.byType[t] ?? 0,
           change: (end?.byType[t] ?? 0) - (start?.byType[t] ?? 0),
         }))
         .filter((b) => b.value !== 0 || b.change !== 0)
-        .sort((a, b) => Object.keys(ASSET_TYPE_LABELS).indexOf(a.type) - Object.keys(ASSET_TYPE_LABELS).indexOf(b.type));
+        .sort((a, b) => Object.keys(ASSET_GROUP_LABELS).indexOf(a.type) - Object.keys(ASSET_GROUP_LABELS).indexOf(b.type));
 
       return {
         label: p.label,

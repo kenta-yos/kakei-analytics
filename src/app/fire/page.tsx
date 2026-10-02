@@ -11,26 +11,60 @@ type Settings = {
   fireMultiplier: number;
   monthlyExpenseOverride: number | null;
   monthlySavingsOverride: number | null;
+  monthlyIdecoOverride: number | null;
+  poolInflowOverride: number | null;
+};
+type Account = {
+  name: string;
+  role: "pool" | "invested";
+  balance: number;
+  source: string;
+  asOf: { year: number; month: number } | null;
 };
 type FireData = {
   settings: Settings;
-  currentState: { netAssets: number; monthlyExpenseAuto: number; monthlySavingsAuto: number };
+  accounts: Account[];
+  auto: { annualExpense: number; fundContribution: number; ideco: number; poolInflow: number };
 };
 
 type Values = {
   annualExpense: number;
-  monthlySavings: number;
+  fundContribution: number;
+  ideco: number;
+  poolInflow: number;
   returnRate: number; // %
   inflation: number; // %
   withdrawal: number; // %
   age: number;
 };
 
+type Field = { key: keyof Values; name: string; unit: "円" | "%" | "歳"; auto?: keyof FireData["auto"]; note?: string };
+
+const FIELDS: Field[] = [
+  { key: "annualExpense", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
+  { key: "fundContribution", name: "投信への毎月の積立", unit: "円", auto: "fundContribution", note: "原資から。振替の実績（直近6か月の中央値）" },
+  { key: "ideco", name: "iDeCo の毎月の拠出", unit: "円", auto: "ideco", note: "振替の実績（直近6か月の中央値）" },
+  { key: "poolInflow", name: "原資への毎月の追加", unit: "円", auto: "poolInflow", note: "予算「貯蓄（投信）」の配分" },
+  { key: "returnRate", name: "想定利回り（年）", unit: "%" },
+  { key: "inflation", name: "インフレ率（年）", unit: "%" },
+  { key: "withdrawal", name: "取り崩し率", unit: "%" },
+  { key: "age", name: "現在の年齢", unit: "歳" },
+];
+
+const OVERRIDE: Partial<Record<keyof Values, keyof Settings>> = {
+  annualExpense: "monthlyExpenseOverride",
+  fundContribution: "monthlySavingsOverride",
+  ideco: "monthlyIdecoOverride",
+  poolInflow: "poolInflowOverride",
+};
+
 function toValues(d: FireData): Values {
   const s = d.settings;
   return {
-    annualExpense: (s.monthlyExpenseOverride ?? d.currentState.monthlyExpenseAuto) * 12,
-    monthlySavings: s.monthlySavingsOverride ?? d.currentState.monthlySavingsAuto,
+    annualExpense: s.monthlyExpenseOverride !== null ? s.monthlyExpenseOverride * 12 : d.auto.annualExpense,
+    fundContribution: s.monthlySavingsOverride ?? d.auto.fundContribution,
+    ideco: s.monthlyIdecoOverride ?? d.auto.ideco,
+    poolInflow: s.poolInflowOverride ?? d.auto.poolInflow,
     returnRate: s.expectedReturnRate / 100,
     inflation: s.inflationRate / 100,
     withdrawal: Math.round((100 / s.fireMultiplier) * 100) / 100,
@@ -38,27 +72,44 @@ function toValues(d: FireData): Values {
   };
 }
 
-/** 実質利回り（利回り − インフレ率）で毎月積み立てたときに目標へ届くまでの月数 */
-function simulate(net: number, v: Values) {
+/**
+ * 原資（現金・利回りなし）から毎月投信へ移し、運用中の資産に実質利回りを乗せる。
+ * 原資がなくなれば、投信への積立は原資への追加分だけになる。
+ */
+function simulate(pool: number, invested: number, v: Values) {
   const target = v.withdrawal > 0 ? v.annualExpense / (v.withdrawal / 100) : Infinity;
   const r = (v.returnRate - v.inflation) / 100 / 12;
-  let a = net;
+  let c = pool;
+  let inv = invested;
   let m = 0;
-  while (a < target && m < 12 * 60) {
-    a = a * (1 + r) + v.monthlySavings;
+  while (c + inv < target && m < 12 * 60) {
+    c += v.poolInflow;
+    const move = Math.min(v.fundContribution, Math.max(0, c));
+    c -= move;
+    inv = inv * (1 + r) + move + v.ideco;
     m++;
   }
-  return { target, months: a >= target ? m : null };
+
+  // 原資が尽きて、投信への積立を満額続けられなくなる月（目標に届くかとは別に数える）
+  let poolEmptyAt: number | null = null;
+  if (v.fundContribution > v.poolInflow) {
+    let p = pool;
+    for (let i = 1; i <= 12 * 60; i++) {
+      p += v.poolInflow - v.fundContribution;
+      if (p < v.fundContribution - v.poolInflow) {
+        poolEmptyAt = i;
+        break;
+      }
+    }
+  }
+  return { target, months: c + inv >= target ? m : null, poolEmptyAt };
 }
 
-const FIELDS: { key: keyof Values; name: string; unit: "円" | "%" | "歳"; auto?: "expense" | "savings" }[] = [
-  { key: "annualExpense", name: "年間支出", unit: "円", auto: "expense" },
-  { key: "monthlySavings", name: "毎月の積立額", unit: "円", auto: "savings" },
-  { key: "returnRate", name: "想定利回り（年）", unit: "%" },
-  { key: "inflation", name: "インフレ率（年）", unit: "%" },
-  { key: "withdrawal", name: "取り崩し率", unit: "%" },
-  { key: "age", name: "現在の年齢", unit: "歳" },
-];
+function addMonths(months: number) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
 
 export default function FirePage() {
   const { data, error, loading, reload } = useApi<FireData>("/api/fire");
@@ -70,20 +121,19 @@ export default function FirePage() {
   if (!data) return null;
 
   const v = toValues(data);
-  const autoExpense = data.currentState.monthlyExpenseAuto * 12;
-  const autoSavings = data.currentState.monthlySavingsAuto;
-  const { target, months } = simulate(data.currentState.netAssets, v);
-  const progress = Number.isFinite(target) && target > 0 ? Math.min(1, data.currentState.netAssets / target) : 0;
+  const pool = data.accounts.filter((a) => a.role === "pool").reduce((s, a) => s + a.balance, 0);
+  const invested = data.accounts.filter((a) => a.role === "invested").reduce((s, a) => s + a.balance, 0);
+  const total = pool + invested;
+  const { target, months, poolEmptyAt } = simulate(pool, invested, v);
+  const progress = Number.isFinite(target) && target > 0 ? Math.min(1, total / target) : 0;
   const thisYear = new Date().getFullYear();
+  const emptyAt = poolEmptyAt !== null ? addMonths(poolEmptyAt) : null;
 
-  const show = (key: keyof Values) => {
-    const unit = FIELDS.find((f) => f.key === key)!.unit;
-    return unit === "円" ? yen(v[key]) : `${v[key]}${unit}`;
-  };
-  const source = (f: (typeof FIELDS)[number]) => {
-    if (f.auto === "expense") return data.settings.monthlyExpenseOverride === null ? "直近12か月の実績から" : "手入力で上書き中";
-    if (f.auto === "savings") return data.settings.monthlySavingsOverride === null ? "直近12か月の収入−支出の平均" : "手入力で上書き中";
-    return "手入力";
+  const show = (f: Field) => (f.unit === "円" ? yen(v[f.key]) : `${v[f.key]}${f.unit}`);
+  const source = (f: Field) => {
+    if (!f.auto) return "手入力";
+    const key = OVERRIDE[f.key]!;
+    return data.settings[key] === null ? f.note : "手入力で上書き中";
   };
 
   function startEdit() {
@@ -95,8 +145,12 @@ export default function FirePage() {
   async function commit() {
     if (!draft) return;
     const parse = (k: keyof Values) => parseFloat(draft[k].replace(/[^0-9.\-]/g, "")) || 0;
-    const annual = Math.round(parse("annualExpense"));
-    const savings = Math.round(parse("monthlySavings"));
+    const override = (k: keyof Values) => {
+      const value = Math.round(parse(k));
+      const auto = data!.auto[FIELDS.find((f) => f.key === k)!.auto!];
+      return value === auto ? null : value;
+    };
+    const annual = override("annualExpense");
     const withdrawal = parse("withdrawal");
     setSaving(true);
     try {
@@ -108,8 +162,10 @@ export default function FirePage() {
           expectedReturnRate: Math.round(parse("returnRate") * 100),
           inflationRate: Math.round(parse("inflation") * 100),
           fireMultiplier: withdrawal > 0 ? Math.max(1, Math.round(100 / withdrawal)) : 25,
-          monthlyExpenseOverride: annual === autoExpense ? null : Math.round(annual / 12),
-          monthlySavingsOverride: savings === autoSavings ? null : savings,
+          monthlyExpenseOverride: annual === null ? null : Math.round(annual / 12),
+          monthlySavingsOverride: override("fundContribution"),
+          monthlyIdecoOverride: override("ideco"),
+          poolInflowOverride: override("poolInflow"),
         }),
       });
       setDraft(null);
@@ -122,6 +178,7 @@ export default function FirePage() {
   return (
     <Page>
       <PageTitle kicker="FIRE試算" title="いつ自由になれるか" />
+
       <Card className="flex flex-col gap-1.5 py-5">
         <span className="lbl">いまのペースでの到達見込み</span>
         <span className="text-[34px] font-bold">{months === null ? "60年以上先" : `${thisYear + Math.ceil(months / 12)}年`}</span>
@@ -133,8 +190,24 @@ export default function FirePage() {
           <div className="h-full rounded-[5px] bg-accent" style={{ width: `${progress * 100}%` }} />
         </div>
         <span className="lbl">
-          現在の純資産 {yen(data.currentState.netAssets)}（{Math.round(progress * 100)}%）
+          いまの投資資産 {yen(total)}（{Math.round(progress * 100)}%）
         </span>
+      </Card>
+
+      <Card>
+        <CardTitle right={<span className="text-sm font-bold">{yen(total)}</span>}>投資資産</CardTitle>
+        <AccountGroup title="原資（まだ運用していないお金）" accounts={data.accounts.filter((a) => a.role === "pool")} />
+        <AccountGroup title="運用中" accounts={data.accounts.filter((a) => a.role === "invested")} />
+        <p className="mt-3 rounded-[10px] bg-panel px-3 py-2.5 text-[13px] leading-relaxed text-ink2">
+          {emptyAt ? (
+            <>
+              原資から毎月 {yen(v.fundContribution)} を投信に移すと、<b>{emptyAt.year}年{emptyAt.month}月ごろ</b>に原資がなくなります。その後の積立は月{" "}
+              {yen(Math.min(v.fundContribution, v.poolInflow) + v.ideco)}（原資への追加＋iDeCo）。
+            </>
+          ) : (
+            <>原資への追加が投信への積立以上なので、原資はなくなりません。</>
+          )}
+        </p>
       </Card>
 
       <Card className="px-4 pb-3 pt-1">
@@ -158,11 +231,7 @@ export default function FirePage() {
               </label>
               <span className="lbl">{source(f)}</span>
               {draft && f.auto && (
-                <button
-                  type="button"
-                  className="block min-h-6 text-xs text-accent"
-                  onClick={() => setDraft({ ...draft, [f.key]: num(f.auto === "expense" ? autoExpense : autoSavings) })}
-                >
+                <button type="button" className="block min-h-6 text-xs text-accent" onClick={() => setDraft({ ...draft, [f.key]: num(data.auto[f.auto!]) })}>
                   実績の値に戻す
                 </button>
               )}
@@ -177,10 +246,10 @@ export default function FirePage() {
                   onFocus={(e) => e.target.select()}
                   className="h-11 w-[132px] rounded-[10px] border border-field px-2.5 text-right text-base font-bold outline-none focus:border-accent focus:ring-2 focus:ring-accent"
                 />
-                <span className="w-4 text-[13px] text-sub">{f.unit === "円" ? "円" : f.unit}</span>
+                <span className="w-4 text-[13px] text-sub">{f.unit}</span>
               </div>
             ) : (
-              <span className="text-base font-bold">{show(f.key)}</span>
+              <span className="shrink-0 text-base font-bold">{show(f)}</span>
             )}
           </div>
         ))}
@@ -203,7 +272,33 @@ export default function FirePage() {
           <span className="text-base font-bold">{Number.isFinite(target) ? yen(target) : "—"}</span>
         </div>
       </Card>
-      <p className="lbl leading-relaxed">利回りからインフレ率を引いた実質利回りで、毎月の積立を続けた場合の試算です。取り崩し率は「目標資産＝年間支出の何倍か」に換算して保存します。</p>
+      <p className="lbl leading-relaxed">
+        運用中の資産に、利回りからインフレ率を引いた実質利回りを毎月乗せて試算しています。原資（現金）には利回りを乗せません。取り崩し率は「目標資産＝年間支出の何倍か」に換算して保存します。
+      </p>
     </Page>
+  );
+}
+
+function AccountGroup({ title, accounts }: { title: string; accounts: Account[] }) {
+  const subtotal = accounts.reduce((s, a) => s + a.balance, 0);
+  return (
+    <div className="mt-2">
+      <div className="flex items-baseline justify-between border-b border-line2 pb-1.5">
+        <span className="text-[13px] font-bold">{title}</span>
+        <span className="text-[13px] font-bold">{yen(subtotal)}</span>
+      </div>
+      {accounts.map((a) => (
+        <div key={a.name} className="flex items-baseline justify-between py-2">
+          <span className="min-w-0">
+            <span className="block text-sm">{a.name}</span>
+            <span className="lbl">
+              {a.source}
+              {a.asOf ? `（${a.asOf.year}年${a.asOf.month}月末）` : ""}
+            </span>
+          </span>
+          <span className="text-sm font-bold">{yen(a.balance)}</span>
+        </div>
+      ))}
+    </div>
   );
 }

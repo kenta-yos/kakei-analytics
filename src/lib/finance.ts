@@ -36,14 +36,19 @@ export const PRODUCT_TO_ASSET: Record<string, string> = {
   SBI投資信託: "投資信託/SBI",
 };
 
-export const ASSET_TYPE_LABELS: Record<string, string> = {
-  bank: "銀行口座",
-  investment: "投資",
-  cash: "現金",
-  ic_card: "ICカード",
-  qr_pay: "QR決済",
-  other: "その他",
-  credit: "クレジットカード",
+/** 投資関連資産の口座。原資＝まだ運用していないお金、運用中＝投信・iDeCo */
+export const INVESTMENT_ACCOUNTS = [
+  { asset: "ゆうちょ(投資用)", role: "pool" as const },
+  { asset: "SBI証券", role: "pool" as const },
+  { asset: "投資信託/SBI", role: "invested" as const, product: "SBI投資信託" },
+  { asset: "iDeCo", role: "invested" as const, product: "iDeCo" },
+];
+const INVESTMENT_ASSET_NAMES = new Set(INVESTMENT_ACCOUNTS.map((a) => a.asset));
+
+/** 決算で資産を分ける2つのグループ */
+export const ASSET_GROUP_LABELS: Record<string, string> = {
+  invest: "投資関連資産",
+  living: "生活資金",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,11 +141,11 @@ export async function getStandardBudgets() {
 
 /**
  * 月末時点の資産。各口座は「その月以前で最新のスナップショット」を引き継ぐ（フィルフォワード）。
- * 返り値は ym → { net, byType }
+ * 返り値は ym → { net, byType }（byType は 投資関連資産 invest / 生活資金 living）
  */
 export async function getAssetSeries() {
   const r = await rows(sql`
-    SELECT asset_name, asset_type, (year * 100 + month) AS ym, closing_balance
+    SELECT asset_name, (year * 100 + month) AS ym, closing_balance
     FROM asset_snapshots ORDER BY ym
   `);
   if (r.length === 0) return new Map<number, { net: number; byType: Record<string, number> }>();
@@ -154,7 +159,8 @@ export async function getAssetSeries() {
   for (let y = Math.floor(first / 100), m = first % 100; ymKey(y, m) <= last; m === 12 ? (y++, (m = 1)) : m++) {
     const key = ymKey(y, m);
     while (i < r.length && Number(r[i].ym) === key) {
-      latest.set(String(r[i].asset_name), { type: String(r[i].asset_type), balance: Number(r[i].closing_balance) });
+      const name = String(r[i].asset_name);
+      latest.set(name, { type: INVESTMENT_ASSET_NAMES.has(name) ? "invest" : "living", balance: Number(r[i].closing_balance) });
       i++;
     }
     const byType: Record<string, number> = {};

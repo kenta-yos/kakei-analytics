@@ -186,7 +186,9 @@ export const fireSettings = pgTable("fire_settings", {
   inflationRate: integer("inflation_rate").notNull().default(200),
   fireMultiplier: integer("fire_multiplier").notNull().default(25),
   monthlyExpenseOverride: integer("monthly_expense_override"), // null = 自動
-  monthlySavingsOverride: integer("monthly_savings_override"), // null = 自動
+  monthlySavingsOverride: integer("monthly_savings_override"), // 投信への毎月の積立。null = 自動（振替の実績）
+  monthlyIdecoOverride: integer("monthly_ideco_override"), // iDeCo の毎月の拠出。null = 自動（振替の実績）
+  poolInflowOverride: integer("pool_inflow_override"), // 原資（ゆうちょ投資用・SBI証券）への毎月の追加。null = 自動（予算「貯蓄（投信）」）
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
