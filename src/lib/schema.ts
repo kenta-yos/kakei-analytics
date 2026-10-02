@@ -191,6 +191,9 @@ export const fireSettings = pgTable("fire_settings", {
   poolInflowOverride: integer("pool_inflow_override"), // 原資（ゆうちょ投資用・SBI証券）への毎月の追加。null = 自動（予算「貯蓄（投信）」）
   birthDate: date("birth_date"), // 年齢は日本時間の今日から自動計算する
   inflationReviewedOn: date("inflation_reviewed_on"), // 前提条件（インフレ率など）を最後に見直した日
+  endAge: integer("end_age").notNull().default(95), // 何歳まで資産で暮らせればいいか
+  retirementIncome: integer("retirement_income").notNull().default(0), // リタイア後の月収入（年金・副収入など）
+  targetRetireAge: integer("target_retire_age").notNull().default(50), // 逆算: 何歳でリタイアしたいか
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

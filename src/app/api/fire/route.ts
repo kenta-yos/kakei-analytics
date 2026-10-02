@@ -113,6 +113,9 @@ export async function GET() {
       poolInflowOverride: s?.pool_inflow_override ?? null,
       birthDate: (s?.birth as string | null) ?? null,
       inflationReviewedOn: (s?.reviewed as string | null) ?? null,
+      endAge: Number(s?.end_age ?? 95),
+      retirementIncome: Number(s?.retirement_income ?? 0),
+      targetRetireAge: Number(s?.target_retire_age ?? 50),
     };
     const age = settings.birthDate ? ageOn(settings.birthDate) : settings.currentAge;
 
@@ -192,12 +195,14 @@ export async function POST(req: NextRequest) {
     const set = {
       expectedReturnRate: b.expectedReturnRate ?? 500,
       inflationRate,
-      fireMultiplier: b.fireMultiplier ?? 25,
       monthlyExpenseOverride: b.monthlyExpenseOverride ?? null,
       monthlySavingsOverride: b.monthlySavingsOverride ?? null,
       monthlyIdecoOverride: b.monthlyIdecoOverride ?? null,
       poolInflowOverride: b.poolInflowOverride ?? null,
       inflationReviewedOn: reviewed,
+      endAge: b.endAge ?? 95,
+      retirementIncome: b.retirementIncome ?? 0,
+      targetRetireAge: b.targetRetireAge ?? 50,
     };
     await db
       .insert(fireSettings)

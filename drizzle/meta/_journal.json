@@ -50,6 +50,13 @@
       "when": 1790921188915,
       "tag": "0006_fire_inflation_review",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790922317411,
+      "tag": "0007_fire_plan",
+      "breakpoints": true
     }
   ]
 }

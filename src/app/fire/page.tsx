@@ -2,67 +2,55 @@
 import { useState } from "react";
 import { Card, CardTitle, ErrorBox, Loading, Page, PageTitle, useApi } from "@/components/ui/kit";
 import { PencilIcon } from "@/components/ui/icons";
+import { ageInMonths, monthsUntilPoolEmpty, neededSaving, whenCanRetire, type Plan } from "@/lib/fire";
 import { num, yen } from "@/lib/format";
 
 type Settings = {
-  currentAge: number;
   expectedReturnRate: number; // 500 = 5.00%
   inflationRate: number;
-  fireMultiplier: number;
   monthlyExpenseOverride: number | null;
   monthlySavingsOverride: number | null;
   monthlyIdecoOverride: number | null;
   poolInflowOverride: number | null;
   birthDate: string | null;
   inflationReviewedOn: string | null;
+  endAge: number;
+  retirementIncome: number;
+  targetRetireAge: number;
 };
-type Account = {
-  name: string;
-  role: "pool" | "invested";
-  balance: number;
-  source: string;
-  asOf: { year: number; month: number } | null;
-};
+type Account = { name: string; role: "pool" | "invested"; balance: number; source: string; asOf: { year: number; month: number } | null };
 type FireData = {
   settings: Settings;
   accounts: Account[];
-  auto: { annualExpense: number; fundContribution: number; ideco: number; poolInflow: number; returnRate: number | null };
+  auto: { annualExpense: number; fundContribution: number; ideco: number; poolInflow: number };
   age: number;
   actualReturn: { months: number; from: { year: number; month: number }; cumulative: number; annualized: number } | null;
   today: { year: number; month: number; day: number };
 };
 
-type Values = {
-  annualExpense: number;
-  fundContribution: number;
-  ideco: number;
-  poolInflow: number;
-  returnRate: number; // %
-  inflation: number; // %
-  withdrawal: number; // %
-};
-
-type AutoKey = "annualExpense" | "fundContribution" | "ideco" | "poolInflow";
-type Field = { key: keyof Values; name: string; unit: "円" | "%"; auto?: AutoKey; note?: string };
+type AutoKey = keyof FireData["auto"];
+type Field = { key: keyof Plan; name: string; unit: "円" | "%" | "歳" | "円/月"; auto?: AutoKey; note?: string };
 
 const FIELDS: Field[] = [
   { key: "annualExpense", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
+  { key: "retirementIncome", name: "リタイア後の月収入", unit: "円/月", note: "年金・副収入など。支出から差し引く" },
+  { key: "endAge", name: "何歳まで資産で暮らすか", unit: "歳", note: "この年齢でちょうど使い切る計算" },
+  { key: "targetRetireAge", name: "リタイアしたい年齢", unit: "歳", note: "逆算に使う" },
   { key: "fundContribution", name: "投信への毎月の積立", unit: "円", auto: "fundContribution", note: "原資から。振替の実績（直近6か月の中央値）" },
   { key: "ideco", name: "iDeCo の毎月の拠出", unit: "円", auto: "ideco", note: "原資から。振替の実績（直近6か月の中央値）" },
   { key: "poolInflow", name: "原資への毎月の追加", unit: "円", auto: "poolInflow", note: "予算「貯蓄（投信）」の配分の実績（直近6か月の中央値）" },
   { key: "returnRate", name: "想定利回り（年）", unit: "%" },
   { key: "inflation", name: "インフレ率（年）", unit: "%" },
-  { key: "withdrawal", name: "取り崩し率", unit: "%" },
 ];
 
-const OVERRIDE: Partial<Record<keyof Values, keyof Settings>> = {
+const OVERRIDE: Partial<Record<keyof Plan, keyof Settings>> = {
   annualExpense: "monthlyExpenseOverride",
   fundContribution: "monthlySavingsOverride",
   ideco: "monthlyIdecoOverride",
   poolInflow: "poolInflowOverride",
 };
 
-function toValues(d: FireData): Values {
+function toPlan(d: FireData): Plan {
   const s = d.settings;
   return {
     annualExpense: s.monthlyExpenseOverride !== null ? s.monthlyExpenseOverride * 12 : d.auto.annualExpense,
@@ -71,81 +59,53 @@ function toValues(d: FireData): Values {
     poolInflow: s.poolInflowOverride ?? d.auto.poolInflow,
     returnRate: s.expectedReturnRate / 100,
     inflation: s.inflationRate / 100,
-    withdrawal: Math.round((100 / s.fireMultiplier) * 100) / 100,
+    endAge: s.endAge,
+    retirementIncome: s.retirementIncome,
+    targetRetireAge: s.targetRetireAge,
   };
 }
 
-/**
- * 原資（現金・利回りなし）から毎月 投信・iDeCo へ移し、運用中の資産に実質利回りを乗せる。
- * 原資がなくなれば、積立は原資への追加分だけになる。
- */
-function simulate(pool: number, invested: number, v: Values) {
-  const target = v.withdrawal > 0 ? v.annualExpense / (v.withdrawal / 100) : Infinity;
-  const r = (v.returnRate - v.inflation) / 100 / 12;
-  let c = pool;
-  let inv = invested;
-  let m = 0;
-  const want = v.fundContribution + v.ideco;
-  while (c + inv < target && m < 12 * 60) {
-    c += v.poolInflow;
-    const move = Math.min(want, Math.max(0, c));
-    c -= move;
-    inv = inv * (1 + r) + move;
-    m++;
-  }
-
-  // 原資が尽きて、積立を満額続けられなくなる月（目標に届くかとは別に数える）
-  let poolEmptyAt: number | null = null;
-  if (want > v.poolInflow) {
-    let p = pool;
-    for (let i = 1; i <= 12 * 60; i++) {
-      p += v.poolInflow - want;
-      if (p < want - v.poolInflow) {
-        poolEmptyAt = i;
-        break;
-      }
-    }
-  }
-  return { target, months: c + inv >= target ? m : null, poolEmptyAt };
+function addMonths(today: { year: number; month: number }, months: number) {
+  const idx = today.year * 12 + (today.month - 1) + months;
+  return { year: Math.floor(idx / 12), month: (idx % 12) + 1 };
 }
 
-function addMonths(months: number) {
-  const d = new Date();
-  d.setMonth(d.getMonth() + months);
-  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+function man(v: number) {
+  return `${Math.round(v / 10000).toLocaleString("ja-JP")}万円`;
 }
 
 export default function FirePage() {
   const { data, error, loading, reload } = useApi<FireData>("/api/fire");
-  const [draft, setDraft] = useState<Record<keyof Values, string> | null>(null);
+  const [draft, setDraft] = useState<Record<keyof Plan, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [markReviewed, setMarkReviewed] = useState(false);
-  const [help, setHelp] = useState(false);
 
   if (error) return <Page><ErrorBox message={error} /></Page>;
   if (loading && !data) return <Page><Loading /></Page>;
   if (!data) return null;
 
-  const v = toValues(data);
+  const p = toPlan(data);
   const pool = data.accounts.filter((a) => a.role === "pool").reduce((s, a) => s + a.balance, 0);
   const invested = data.accounts.filter((a) => a.role === "invested").reduce((s, a) => s + a.balance, 0);
   const total = pool + invested;
-  const { target, months, poolEmptyAt } = simulate(pool, invested, v);
-  const progress = Number.isFinite(target) && target > 0 ? Math.min(1, total / target) : 0;
-  const thisYear = data.today.year;
-  const age = data.age;
+  const ageM = data.settings.birthDate ? ageInMonths(data.settings.birthDate, data.today) : data.age * 12;
+  const start = { pool, invested };
+
+  const forward = whenCanRetire(start, ageM, p);
+  const reverse = neededSaving(start, ageM, p);
+  const emptyIn = monthsUntilPoolEmpty(pool, p);
+  const emptyAt = emptyIn !== null ? addMonths(data.today, emptyIn) : null;
+  const retireAt = forward ? addMonths(data.today, forward.months) : null;
+
   const reviewed = data.settings.inflationReviewedOn;
-  const reviewedMonths = reviewed
-    ? (data.today.year - Number(reviewed.slice(0, 4))) * 12 + (data.today.month - Number(reviewed.slice(5, 7)))
-    : null;
+  const reviewedMonths = reviewed ? (data.today.year - Number(reviewed.slice(0, 4))) * 12 + (data.today.month - Number(reviewed.slice(5, 7))) : null;
   const reviewDue = reviewedMonths === null || reviewedMonths >= 12;
   const ar = data.actualReturn;
-  const emptyAt = poolEmptyAt !== null ? addMonths(poolEmptyAt) : null;
 
-  const show = (f: Field) => (f.unit === "円" ? yen(v[f.key]) : `${v[f.key]}${f.unit}`);
+  const show = (f: Field) =>
+    f.unit === "円" ? yen(p[f.key]) : f.unit === "円/月" ? `${yen(p[f.key])}/月` : `${p[f.key]}${f.unit}`;
   const source = (f: Field): React.ReactNode => {
-    if (f.key === "returnRate")
-      return ar ? `実績 年率${ar.annualized}%（${ar.from.year}年${ar.from.month}月〜の${ar.months}か月）` : "手入力";
+    if (f.key === "returnRate") return ar ? `実績 年率${ar.annualized}%（${ar.from.year}年${ar.from.month}月〜の${ar.months}か月）` : "手入力";
     if (f.key === "inflation")
       return (
         <span className={reviewDue ? "font-bold text-over" : ""}>
@@ -153,33 +113,25 @@ export default function FirePage() {
           {reviewDue && " · 見直し時期です"}
         </span>
       );
-    if (f.key === "withdrawal")
-      return (
-        <button type="button" className="text-accent underline" onClick={() => setHelp((h) => !h)}>
-          取り崩し率とは？
-        </button>
-      );
-    if (!f.auto) return "手入力";
-    const key = OVERRIDE[f.key]!;
-    return data.settings[key] === null ? f.note : "手入力で上書き中";
+    if (f.auto) return data.settings[OVERRIDE[f.key]!] === null ? f.note : "手入力で上書き中";
+    return f.note ?? "手入力";
   };
 
   function startEdit() {
-    const d = {} as Record<keyof Values, string>;
-    FIELDS.forEach((f) => (d[f.key] = f.unit === "円" ? num(v[f.key]) : String(v[f.key])));
+    const d = {} as Record<keyof Plan, string>;
+    FIELDS.forEach((f) => (d[f.key] = f.unit.startsWith("円") ? num(p[f.key]) : String(p[f.key])));
     setDraft(d);
   }
 
   async function commit() {
     if (!draft) return;
-    const parse = (k: keyof Values) => parseFloat(draft[k].replace(/[^0-9.\-]/g, "")) || 0;
-    const override = (k: keyof Values) => {
+    const parse = (k: keyof Plan) => parseFloat(draft[k].replace(/[^0-9.\-]/g, "")) || 0;
+    const override = (k: keyof Plan) => {
       const value = Math.round(parse(k));
       const auto = data!.auto[FIELDS.find((f) => f.key === k)!.auto!];
       return value === auto ? null : value;
     };
     const annual = override("annualExpense");
-    const withdrawal = parse("withdrawal");
     setSaving(true);
     try {
       await fetch("/api/fire", {
@@ -189,11 +141,13 @@ export default function FirePage() {
           markReviewed,
           expectedReturnRate: Math.round(parse("returnRate") * 100),
           inflationRate: Math.round(parse("inflation") * 100),
-          fireMultiplier: withdrawal > 0 ? Math.max(1, Math.round(100 / withdrawal)) : 25,
           monthlyExpenseOverride: annual === null ? null : Math.round(annual / 12),
           monthlySavingsOverride: override("fundContribution"),
           monthlyIdecoOverride: override("ideco"),
           poolInflowOverride: override("poolInflow"),
+          endAge: Math.round(parse("endAge")),
+          retirementIncome: Math.round(parse("retirementIncome")),
+          targetRetireAge: Math.round(parse("targetRetireAge")),
         }),
       });
       setDraft(null);
@@ -209,19 +163,52 @@ export default function FirePage() {
       <PageTitle kicker="FIRE試算" title="いつ自由になれるか" />
 
       <Card className="flex flex-col gap-1.5 py-5">
-        <span className="lbl">いまのペースでの到達見込み</span>
-        <span className="text-[34px] font-bold">{months === null ? "60年以上先" : `${thisYear + Math.ceil(months / 12)}年`}</span>
-        <span className="text-[13px] text-sub">
-          {months === null ? "前提を見直してください" : `あと ${(months / 12).toFixed(1)} 年（${age + Math.ceil(months / 12)}歳）`} · 目標資産{" "}
-          {Number.isFinite(target) ? yen(target) : "—"}
-        </span>
-        <div className="mt-2 h-2.5 overflow-hidden rounded-[5px] bg-line2">
-          <div className="h-full rounded-[5px] bg-accent" style={{ width: `${progress * 100}%` }} />
-        </div>
-        <span className="lbl">
-          いまの投資資産 {yen(total)}（{Math.round(progress * 100)}%）
-        </span>
+        <span className="lbl">いまのペースでリタイアできる時期</span>
+        {forward && retireAt ? (
+          <>
+            <span className="text-[34px] font-bold leading-tight">
+              {Math.floor(forward.ageMonths / 12)}歳
+              <span className="ml-2 text-lg font-bold text-sub">
+                {retireAt.year}年{retireAt.month}月
+              </span>
+            </span>
+            <span className="text-[13px] text-sub">
+              そのとき必要な資産 {man(forward.required)}（{p.endAge}歳まで）
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-[28px] font-bold">{p.endAge}歳までに届きません</span>
+            <span className="text-[13px] text-sub">前提を見直してください</span>
+          </>
+        )}
+        <span className="lbl mt-1">いまの投資資産 {yen(total)}</span>
       </Card>
+
+      {reverse && (
+        <Card className="flex flex-col gap-2.5">
+          <span className="lbl">
+            {p.targetRetireAge}歳でリタイアするには（あと {(reverse.months / 12).toFixed(1)} 年）
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-0.5 rounded-xl border border-line bg-panel p-3">
+              <span className="lbl">必要な毎月の積立</span>
+              <span className={`text-[22px] font-bold leading-tight ${reverse.needed > p.poolInflow ? "text-over" : "text-accent"}`}>
+                {yen(reverse.needed)}
+              </span>
+              <span className="lbl">いまは {yen(p.poolInflow)}</span>
+            </div>
+            <div className="flex flex-col gap-0.5 rounded-xl border border-line bg-panel p-3">
+              <span className="lbl">{p.targetRetireAge}歳で必要な資産</span>
+              <span className="text-[22px] font-bold leading-tight">{man(reverse.required)}</span>
+              <span className="lbl">いまのペースだと {man(reverse.projected)}</span>
+            </div>
+          </div>
+          <p className="lbl leading-relaxed">
+            毎月の積立＝原資（ゆうちょ投資用・SBI証券）に新しく入れるお金。いまの投信・iDeCo への積立に上乗せして、すべて運用に回す前提です。
+          </p>
+        </Card>
+      )}
 
       <Card>
         <CardTitle right={<span className="text-sm font-bold">{yen(total)}</span>}>投資資産</CardTitle>
@@ -230,11 +217,14 @@ export default function FirePage() {
         <p className="mt-3 rounded-[10px] bg-panel px-3 py-2.5 text-[13px] leading-relaxed text-ink2">
           {emptyAt ? (
             <>
-              原資から毎月 {yen(v.fundContribution + v.ideco)}（投信 {num(v.fundContribution)}＋iDeCo {num(v.ideco)}）を移すと、
-              <b>{emptyAt.year}年{emptyAt.month}月ごろ</b>に原資がなくなります。その後の積立は月 {yen(Math.max(0, v.poolInflow))}（原資への追加分）。
+              原資から毎月 {yen(p.fundContribution + p.ideco)}（投信 {num(p.fundContribution)}＋iDeCo {num(p.ideco)}）を移すと、
+              <b>
+                {emptyAt.year}年{emptyAt.month}月ごろ
+              </b>
+              に原資がなくなります。その後の積立は月 {yen(Math.max(0, p.poolInflow))}（原資への追加分）。
             </>
           ) : (
-            <>原資への追加が投信への積立以上なので、原資はなくなりません。</>
+            <>原資への追加が積立以上なので、原資はなくなりません。</>
           )}
         </p>
       </Card>
@@ -250,6 +240,14 @@ export default function FirePage() {
               編集
             </button>
           )}
+        </div>
+
+        <div className="flex min-h-14 items-center justify-between gap-3 border-t border-line2 py-2">
+          <div>
+            <span className="block text-sm">現在の年齢</span>
+            <span className="lbl">誕生日から自動（日本時間）</span>
+          </div>
+          <span className="text-base font-bold">{data.age}歳</span>
         </div>
 
         {FIELDS.map((f) => (
@@ -277,37 +275,22 @@ export default function FirePage() {
               )}
             </div>
             {draft ? (
-              <div className="flex items-center gap-1.5">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <input
                   id={`fire-${f.key}`}
                   inputMode="decimal"
                   value={draft[f.key]}
                   onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
                   onFocus={(e) => e.target.select()}
-                  className="h-11 w-[132px] rounded-[10px] border border-field px-2.5 text-right text-base font-bold outline-none focus:border-accent focus:ring-2 focus:ring-accent"
+                  className="h-11 w-[124px] rounded-[10px] border border-field px-2.5 text-right text-base font-bold outline-none focus:border-accent focus:ring-2 focus:ring-accent"
                 />
-                <span className="w-4 text-[13px] text-sub">{f.unit}</span>
+                <span className="w-8 text-[13px] text-sub">{f.unit}</span>
               </div>
             ) : (
               <span className="shrink-0 text-base font-bold">{show(f)}</span>
             )}
           </div>
         ))}
-
-        {help && (
-          <div className="mb-2 rounded-[10px] bg-panel px-3 py-2.5 text-[13px] leading-relaxed text-ink2">
-            FIRE 後に、投資資産の何%を毎年生活費として取り崩すか。目標資産は「年間支出 ÷ 取り崩し率」で決まります（4%なら25倍、3%なら約33倍）。
-            よく使われるのは 4%（いわゆる4%ルール）。取り崩す期間が50年以上と長くなるなら、3〜3.5% にすると安全側です。
-          </div>
-        )}
-
-        <div className="flex min-h-14 items-center justify-between gap-3 border-t border-line2 py-2">
-          <div>
-            <span className="block text-sm">現在の年齢</span>
-            <span className="lbl">誕生日から自動（日本時間）</span>
-          </div>
-          <span className="text-base font-bold">{age}歳</span>
-        </div>
 
         {draft && (
           <div className="grid grid-cols-2 gap-2 pt-3">
@@ -319,17 +302,28 @@ export default function FirePage() {
             </button>
           </div>
         )}
-
-        <div className="mt-1 flex items-center justify-between border-t border-[#C9C6BE] pb-1 pt-3.5">
-          <span className="text-sm">
-            目標資産<span className="lbl block">年間支出 ÷ 取り崩し率</span>
-          </span>
-          <span className="text-base font-bold">{Number.isFinite(target) ? yen(target) : "—"}</span>
-        </div>
       </Card>
-      <p className="lbl leading-relaxed">
-        運用中の資産に、利回りからインフレ率を引いた実質利回りを毎月乗せて試算しています。原資（現金）には利回りを乗せません。取り崩し率は「目標資産＝年間支出の何倍か」に換算して保存します。
-      </p>
+
+      <details className="card p-4 text-[13px] leading-relaxed text-ink2">
+        <summary className="cursor-pointer text-sm font-bold text-ink">計算のしかた</summary>
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5">
+          <li>
+            <b>必要な資産：</b>リタイアした時点から{p.endAge}歳まで、毎月「支出 − リタイア後の月収入」を取り崩し、残りは運用し続けて、{p.endAge}
+            歳でちょうど使い切る額。早くリタイアするほど期間が長く、必要な資産は大きくなります。
+          </li>
+          <li>
+            <b>資産の増え方：</b>毎月、原資に追加分を足し、原資から投信・iDeCo へ積み立てる。運用中のお金には実質利回り（利回り − インフレ率 ＝ 年
+            {(p.returnRate - p.inflation).toFixed(1)}%）を乗せる。原資（現金）には利回りを乗せません。
+          </li>
+          <li>
+            <b>リタイアできる時期：</b>投資資産が、その時点の「必要な資産」に初めて届く月。
+          </li>
+          <li>
+            <b>必要な毎月の積立：</b>目標の年齢で「必要な資産」にちょうど届くよう、原資へ毎月入れる額を逆算。
+          </li>
+        </ol>
+        <p className="mt-2">金額はすべて今の物価に直した値です（インフレの分は実質利回りで調整しています）。</p>
+      </details>
     </Page>
   );
 }
