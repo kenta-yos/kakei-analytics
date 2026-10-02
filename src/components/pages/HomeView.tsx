@@ -14,7 +14,7 @@ type HomeData = {
   income: number;
   expense: number;
   rows: { category: string; budget: number; actual: number; remaining: number }[];
-  next: { year: number; month: number; hasBudget: boolean };
+  closing: { year: number; month: number; hasBudget: boolean; capMonth: { year: number; month: number }; cap: number; due: boolean };
 };
 
 export default function HomeView({ year, month }: { year?: number; month?: number }) {
@@ -29,10 +29,11 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
   const n = nextMonth(data.year, data.month);
   const net = data.income - data.expense;
   const overs = data.rows.filter((r) => r.remaining < 0);
-  // 超過しているカテゴリを上に
-  const rows = [...data.rows].sort((a, b) => Number(b.remaining < 0) - Number(a.remaining < 0));
+  const rows = data.rows;
   const latest = data.latestDate ? data.latestDate.slice(5).replace("-", "/").replace(/^0/, "") : "—";
-  const isPartial = data.elapsedRatio < 1;
+  const noData = data.asOfDay === 0;
+  const isPartial = !noData && data.elapsedRatio < 1;
+  const c = data.closing;
 
   return (
     <Page wide>
@@ -86,9 +87,11 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
               <div>
                 <h2 className="text-base font-bold">{data.month}月の予算と実績</h2>
                 <span className="lbl">
-                  {isPartial
-                    ? `${data.month}/${data.asOfDay} 時点 · 月の ${Math.round(data.elapsedRatio * 100)}% が経過`
-                    : `超過 ${overs.length}件`}
+                  {noData
+                    ? `${data.month}月のデータはまだありません（最終取込 ${latest}）`
+                    : isPartial
+                      ? `${data.month}/${data.asOfDay} 時点 · 月の ${Math.round(data.elapsedRatio * 100)}% が経過`
+                      : `超過 ${overs.length}件`}
                 </span>
               </div>
               <Link href={`/budget?year=${data.year}&month=${data.month}`} className="btn-small">
@@ -126,21 +129,26 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
           </Card>
         </div>
 
-        <Card className="flex flex-col gap-2.5 border-accent">
+        <Card className={`flex flex-col gap-2.5 ${c.due && !c.hasBudget ? "border-accent" : ""}`}>
           <div className="flex items-baseline justify-between">
             <h2 className="text-base font-bold">月末の締め</h2>
-            <span className="lbl">{data.next.hasBudget ? "配分済み" : "未配分"}</span>
+            <span className="lbl">{c.hasBudget ? "配分済み" : "未配分"}</span>
           </div>
-          <p className="text-[13px] leading-relaxed text-ink2">
-            {data.month}月の収入 {yen(data.income)} を上限に、{data.next.month}月の予算を配分します。
-            {data.next.hasBudget && `${data.next.month}月の予算はすでに保存されています。`}
-          </p>
-          <Link
-            href={`/budget?year=${data.next.year}&month=${data.next.month}`}
-            className={data.next.hasBudget ? "btn-ghost h-[52px]" : "btn-primary"}
-          >
-            {data.next.hasBudget ? `${data.next.month}月の予算を見る・修正する` : `${data.next.month}月の予算を配分する`}
-          </Link>
+          {c.due ? (
+            <>
+              <p className="text-[13px] leading-relaxed text-ink2">
+                {c.capMonth.month}月の収入 {yen(c.cap)} を上限に、{c.month}月の予算を配分します。
+                {c.hasBudget && `${c.month}月の予算はすでに保存されています。`}
+              </p>
+              <Link href={`/budget?year=${c.year}&month=${c.month}`} className={c.hasBudget ? "btn-ghost h-[52px]" : "btn-primary"}>
+                {c.hasBudget ? `${c.month}月の予算を見る・修正する` : `${c.month}月の予算を配分する`}
+              </Link>
+            </>
+          ) : (
+            <p className="text-[13px] leading-relaxed text-ink2">
+              {c.capMonth.month}月末に、{c.capMonth.month}月の収入を上限として{c.month}月の予算を配分します。
+            </p>
+          )}
         </Card>
       </div>
     </Page>

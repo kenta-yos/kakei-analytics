@@ -10,10 +10,12 @@ type InvestmentData = { year: number; month: number; products: Product[] };
 
 export default function ValuationPage() {
   const [ym, setYm] = useState<{ year: number; month: number } | null>(null);
-  // 初期表示は最新データの月
-  const home = useApi<{ year: number; month: number }>(ym ? null : "/api/home");
+  // 初期表示は取引データが入っている最新の月（評価額は月末時点で入力するため）
+  const home = useApi<{ year: number; month: number; latestDate: string | null }>(ym ? null : "/api/home");
   useEffect(() => {
-    if (!ym && home.data) setYm({ year: home.data.year, month: home.data.month });
+    if (ym || !home.data) return;
+    const d = home.data.latestDate;
+    setYm(d ? { year: Number(d.slice(0, 4)), month: Number(d.slice(5, 7)) } : { year: home.data.year, month: home.data.month });
   }, [ym, home.data]);
 
   const { data, error, loading, reload } = useApi<InvestmentData>(ym ? `/api/investment?year=${ym.year}&month=${ym.month}` : null);
