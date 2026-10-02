@@ -7,6 +7,7 @@ import { BONUS_CATEGORY } from "@/lib/categories";
 import {
   getBonusLedger,
   getConsumptionByMonthCategory,
+  getConsumptionMonthToDay,
   getConsumptionTransactions,
   getLatestData,
   getSavedBudgets,
@@ -24,7 +25,18 @@ export async function getPaceData(): Promise<PaceData | null> {
   const latest = await getLatestData();
   if (!latest) return null;
   const fromYear = latest.year - 7;
-  const data = await getConsumptionByMonthCategory(fromYear);
+  const [data, monthData] = await Promise.all([
+    getConsumptionByMonthCategory(fromYear),
+    getConsumptionMonthToDay(fromYear, latest.month, latest.day),
+  ]);
+
+  const monthTotals: Record<number, number> = {};
+  const monthCats = new Map<string, Record<number, number>>();
+  for (const r of monthData) {
+    monthTotals[r.year] = (monthTotals[r.year] ?? 0) + r.amount;
+    if (!monthCats.has(r.category)) monthCats.set(r.category, {});
+    monthCats.get(r.category)![r.year] = r.amount;
+  }
 
   const yearMap = new Map<number, number[]>();
   const catMap = new Map<string, Record<number, number>>();
@@ -46,6 +58,13 @@ export async function getPaceData(): Promise<PaceData | null> {
       .sort((a, b) => a[0] - b[0])
       .map(([year, monthly]) => ({ year, monthly })),
     categories: Array.from(catMap.entries()).map(([category, byYear]) => ({ category, byYear })),
+    month: {
+      month: latest.month,
+      day: latest.day,
+      daysInMonth: new Date(latest.year, latest.month, 0).getDate(),
+      totals: monthTotals,
+      categories: Array.from(monthCats.entries()).map(([category, byYear]) => ({ category, byYear })),
+    },
   };
 }
 

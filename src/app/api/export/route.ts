@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
       related: flag("related"),
       all: flag("all"),
       years: sp.get("years")?.split(",").map(Number).filter(Boolean),
+      scope: sp.get("scope") === "month" ? "month" : "year",
       year: sp.get("year") ? Number(sp.get("year")) : undefined,
       month: sp.get("month") ? Number(sp.get("month")) : undefined,
     });

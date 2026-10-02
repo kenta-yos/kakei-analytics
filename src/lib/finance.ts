@@ -223,6 +223,17 @@ export async function getConsumptionByMonthCategory(fromYear: number) {
   }));
 }
 
+/** 各年の指定月、1日〜day 日までの消費支出（カテゴリ別） */
+export async function getConsumptionMonthToDay(fromYear: number, month: number, day: number) {
+  const r = await rows(sql`
+    SELECT year, category, sum(expense_amount) AS amount FROM transactions
+    WHERE ${CONSUMPTION_WHERE} AND year >= ${fromYear} AND month = ${month}
+      AND extract(day FROM date) <= ${day}
+    GROUP BY year, category
+  `);
+  return r.map((x) => ({ year: Number(x.year), category: String(x.category), amount: Number(x.amount ?? 0) }));
+}
+
 export type TxItem = { date: string; category: string; itemName: string; amount: number };
 
 /** 消費支出の明細（金額の大きい順） */

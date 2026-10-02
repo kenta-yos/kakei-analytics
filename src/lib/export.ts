@@ -5,7 +5,7 @@
 import { BONUS_CATEGORY } from "@/lib/categories";
 import { getConsumptionTransactions, type TxItem } from "@/lib/finance";
 import { BIG_THRESHOLD, getBonusData, getPaceData, getUpcomingData, getWhyData } from "@/lib/analysis";
-import { paceBand } from "@/lib/pace";
+import { monthBand, paceBand } from "@/lib/pace";
 import { ymKey } from "@/lib/format";
 
 export type ExportView = "pace" | "why" | "bonus" | "upcoming";
@@ -17,6 +17,8 @@ export type ExportOptions = {
   all: boolean;
   /** pace: 比べる年 */
   years?: number[];
+  /** pace: 年初からの累計か、今月か */
+  scope?: "year" | "month";
   /** why: 対象の年月 */
   year?: number;
   month?: number;
@@ -57,6 +59,7 @@ export async function buildExport(view: ExportView, opt: ExportOptions): Promise
     const pace = await getPaceData();
     if (!pace) return { title: "例年比ペース", markdown: "データがありません" };
     const baseYears = opt.years?.length ? opt.years : pace.years.map((y) => y.year).filter((y) => y < pace.year);
+    if (opt.scope === "month") return buildPaceMonth(pace, baseYears, opt);
     const { band, currentCum, categories } = paceBand(pace, baseYears);
     title = `例年比ペース（${pace.year}年1〜${pace.upToMonth}月）`;
     const last = currentCum[currentCum.length - 1] ?? 0;
@@ -236,5 +239,57 @@ export async function buildExport(view: ExportView, opt: ExportOptions): Promise
     }
   }
 
+  return { title, markdown: parts.filter(Boolean).join("\n\n") + "\n" };
+}
+
+/** 例年比ペース（今月）: 同じ月・同じ日までで比べる */
+async function buildPaceMonth(
+  pace: NonNullable<Awaited<ReturnType<typeof getPaceData>>>,
+  baseYears: number[],
+  opt: ExportOptions
+) {
+  const m = pace.month;
+  const calc = monthBand(pace, baseYears);
+  const period = m.day >= m.daysInMonth ? `${m.month}月` : `${m.month}月1〜${m.day}日`;
+  const title = `例年比ペース（${pace.year}年${period}）`;
+  const parts: string[] = [];
+
+  if (opt.prompt) {
+    parts.push(
+      "# 家計の分析をお願いします",
+      `## 知りたいこと\n${pace.year}年${period}の支出が、例年の${m.month}月の同じ日までと比べて多い／少ないか。その要因と、今月の残りの過ごし方や生活の見直しを提案してください。`,
+      PREMISE,
+      `- 比較対象の年: ${baseYears.join("、")}年`
+    );
+  }
+  if (opt.aggregate) {
+    parts.push(
+      `## ${period}の支出`,
+      `今年 ${n(calc.current)} 円 / 例年平均 ${n(calc.avg)} 円（幅 ${n(calc.min)}〜${n(calc.max)} 円）`,
+      table(["年", `${period}の支出`], [[`${pace.year}`, calc.current], ...calc.perYear.map((p) => [`${p.year}`, p.amount])]),
+      "## カテゴリ別",
+      table(
+        ["カテゴリ", `${pace.year}年`, ...baseYears.map((y) => `${y}年`), "例年平均", "幅からの差"],
+        calc.categories
+          .sort((a, b) => b.current - a.current)
+          .map((c) => [
+            c.category,
+            c.current,
+            ...baseYears.map((y) => m.categories.find((x) => x.category === c.category)?.byYear[y] ?? 0),
+            c.avg,
+            c.outside === 0 ? "範囲内" : (c.outside > 0 ? "+" : "") + n(c.outside),
+          ])
+      )
+    );
+  }
+  if (opt.related || opt.all) {
+    const outsideCats = calc.categories.filter((c) => c.outside > 0).map((c) => c.category);
+    const cats = opt.all ? undefined : outsideCats;
+    const txs =
+      opt.all || outsideCats.length
+        ? await getConsumptionTransactions({ fromYm: ymKey(pace.year, m.month), toYm: ymKey(pace.year, m.month), categories: cats })
+        : [];
+    parts.push(opt.all ? `## ${pace.year}年${m.month}月のすべての明細` : "## 例年の幅を上回ったカテゴリの明細", txTable(txs));
+  }
   return { title, markdown: parts.filter(Boolean).join("\n\n") + "\n" };
 }

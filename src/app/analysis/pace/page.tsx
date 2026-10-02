@@ -2,12 +2,15 @@
 import { useEffect, useMemo, useState } from "react";
 import AnalysisHeader from "@/components/analysis/AnalysisHeader";
 import LineChart, { MonthAxis } from "@/components/charts/LineChart";
-import { Card, CardTitle, ErrorBox, Legend, Loading, Page, Skeleton, useApi } from "@/components/ui/kit";
+import { Card, CardTitle, ErrorBox, Legend, Loading, Page, Segmented, Skeleton, useApi } from "@/components/ui/kit";
 import { ChevronDown } from "@/components/ui/icons";
 import { num, yen } from "@/lib/format";
-import { paceBand, type PaceData } from "@/lib/pace";
+import { monthBand, paceBand, type CategoryBand, type PaceData } from "@/lib/pace";
 
 const STORAGE_KEY = "pace.excludedYears";
+const SCOPE_KEY = "pace.scope";
+
+type Scope = "year" | "month";
 
 type Tx = { id: number; date: string; itemName: string | null; expenseAmount: number };
 
@@ -16,11 +19,24 @@ export default function PacePage() {
   const [excluded, setExcluded] = useState<number[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [scope, setScopeState] = useState<Scope>("year");
+
+  function setScope(v: Scope) {
+    setScopeState(v);
+    setOpen(null);
+    try {
+      localStorage.setItem(SCOPE_KEY, v);
+    } catch {
+      /* noop */
+    }
+  }
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) setExcluded(JSON.parse(saved));
+      const sc = localStorage.getItem(SCOPE_KEY);
+      if (sc === "year" || sc === "month") setScopeState(sc);
     } catch {
       /* 保存できない環境では毎回すべての年を使う */
     }
@@ -44,18 +60,33 @@ export default function PacePage() {
     [data]
   );
   const baseYears = candidates.filter((y) => !excluded.includes(y));
-  const calc = useMemo(() => (data ? paceBand(data, baseYears) : null), [data, baseYears.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = baseYears.join(",");
+  const calc = useMemo(() => (data ? paceBand(data, baseYears) : null), [data, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mcalc = useMemo(() => (data ? monthBand(data, baseYears) : null), [data, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const categories = scope === "year" ? calc?.categories : mcalc?.categories;
 
-  const exportQuery = data ? `view=pace&years=${baseYears.join(",")}` : null;
+  const exportQuery = data ? `view=pace&scope=${scope}&years=${key}` : null;
 
   return (
     <Page>
       <AnalysisHeader title="例年比ペース" exportQuery={exportQuery} exportLabel="例年比ペース" />
       {error && <ErrorBox message={error} />}
       {loading && !data && <Loading />}
-      {data && calc && (
+      {data && calc && mcalc && categories && (
         <>
-          <Headline data={data} calc={calc} hasBase={baseYears.length > 0} />
+          <Segmented
+            options={[
+              { value: "year", label: "年初からの累計" },
+              { value: "month", label: `今月（${data.month.month}月）` },
+            ]}
+            value={scope}
+            onChange={setScope}
+          />
+          {scope === "year" ? (
+            <Headline data={data} calc={calc} hasBase={baseYears.length > 0} />
+          ) : (
+            <MonthHeadline data={data} calc={mcalc} hasBase={baseYears.length > 0} />
+          )}
 
           <Card className="flex flex-col gap-2.5">
             <CardTitle right={<span className="lbl">タップで除外</span>}>比べる年</CardTitle>
@@ -82,7 +113,7 @@ export default function PacePage() {
           <Card className="flex flex-col gap-1">
             <CardTitle>例年の幅から外れたカテゴリ</CardTitle>
             {(() => {
-              const sorted = [...calc.categories].sort((a, b) => b.outside - a.outside || b.current - a.current);
+              const sorted = [...categories].sort((a, b) => b.outside - a.outside || b.current - a.current);
               const outside = sorted.filter((c) => c.outside !== 0);
               const list = showAll ? sorted : outside;
               return (
@@ -92,6 +123,7 @@ export default function PacePage() {
                     <CategoryRow
                       key={c.category}
                       year={data.year}
+                      month={scope === "month" ? data.month.month : undefined}
                       c={c}
                       open={open === c.category}
                       onToggle={() => setOpen(open === c.category ? null : c.category)}
@@ -128,14 +160,14 @@ function Headline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<ty
         <div className="text-lg font-bold leading-normal">
           {above > 0 ? (
             <>
-              例年の範囲を <span className="text-over">{yen(above)} 上回る</span>ペース
+              累計が例年の範囲を <span className="text-over">{yen(above)} 上回る</span>ペース
             </>
           ) : below > 0 ? (
             <>
-              例年の範囲を <span className="text-accent">{yen(below)} 下回る</span>ペース
+              累計が例年の範囲を <span className="text-accent">{yen(below)} 下回る</span>ペース
             </>
           ) : (
-            <>例年の範囲内のペース（平均より {cur >= b.avg ? "+" : "−"}{num(Math.abs(cur - b.avg))}）</>
+            <>累計は例年の範囲内（平均より {cur >= b.avg ? "+" : "−"}{num(Math.abs(cur - b.avg))}）</>
           )}
         </div>
       )}
@@ -174,24 +206,84 @@ function Headline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<ty
   );
 }
 
+function MonthHeadline({ data, calc, hasBase }: { data: PaceData; calc: ReturnType<typeof monthBand>; hasBase: boolean }) {
+  const m = data.month;
+  const above = calc.current - calc.max;
+  const below = calc.min - calc.current;
+  const rows = [{ year: data.year, amount: calc.current, now: true }, ...calc.perYear.map((p) => ({ ...p, now: false })).reverse()];
+  const max = Math.max(1, ...rows.map((r) => r.amount));
+  const period = m.day >= m.daysInMonth ? `${m.month}月` : `${m.month}月1〜${m.day}日`;
+
+  return (
+    <Card className="flex flex-col gap-2.5">
+      <span className="lbl">
+        {period}の支出（例年の{m.month}月の同じ日までと比較）
+      </span>
+      {!hasBase ? (
+        <div className="text-lg font-bold">比べる年を選んでください</div>
+      ) : (
+        <div className="text-lg font-bold leading-normal">
+          {above > 0 ? (
+            <>
+              例年の範囲を <span className="text-over">{yen(above)} 上回る</span>
+            </>
+          ) : below > 0 ? (
+            <>
+              例年の範囲を <span className="text-accent">{yen(below)} 下回る</span>
+            </>
+          ) : (
+            <>例年の範囲内（平均より {calc.current >= calc.avg ? "+" : "−"}{num(Math.abs(calc.current - calc.avg))}）</>
+          )}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <div>
+          <div className="lbl">今年</div>
+          <div className="text-base font-bold">{yen(calc.current)}</div>
+        </div>
+        <div>
+          <div className="lbl">例年（平均 / 幅）</div>
+          <div className="text-base font-bold">{yen(calc.avg)}</div>
+          <div className="lbl">
+            {yen(calc.min)}〜{num(calc.max)}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 pt-1">
+        {rows.map((r) => (
+          <div key={r.year} className="grid grid-cols-[44px_minmax(0,1fr)_84px] items-center gap-2">
+            <span className={`text-[13px] ${r.now ? "font-bold" : "text-sub"}`}>{r.year}</span>
+            <div className="h-2.5 overflow-hidden rounded-[5px] bg-ground">
+              <div className={`h-full rounded-[5px] ${r.now ? "bg-over-fill" : "bg-faint"}`} style={{ width: `${(r.amount / max) * 100}%` }} />
+            </div>
+            <span className={`text-right text-[13px] ${r.now ? "font-bold" : "text-sub"}`}>{num(r.amount)}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function CategoryRow({
   year,
+  month,
   c,
   open,
   onToggle,
 }: {
   year: number;
-  c: ReturnType<typeof paceBand>["categories"][number];
+  month?: number;
+  c: CategoryBand;
   open: boolean;
   onToggle: () => void;
 }) {
   const [txs, setTxs] = useState<Tx[] | null>(null);
   useEffect(() => {
     if (!open || txs) return;
-    fetch(`/api/transactions?year=${year}&category=${encodeURIComponent(c.category)}&type=支出&sort=amount&limit=10`)
+    fetch(`/api/transactions?year=${year}${month ? `&month=${month}` : ""}&category=${encodeURIComponent(c.category)}&type=支出&sort=amount&limit=10`)
       .then((r) => r.json())
       .then((j) => setTxs(j.data ?? []));
-  }, [open, txs, year, c.category]);
+  }, [open, txs, year, month, c.category]);
 
   const scale = Math.max(c.current, c.max, 1) * 1.15;
   const pos = (v: number) => (v / scale) * 100;
@@ -227,7 +319,7 @@ function CategoryRow({
       </button>
       {open && (
         <div className="mb-3 flex flex-col gap-2 rounded-[10px] bg-panel px-3 py-2.5">
-          <span className="lbl">{year}年の明細（金額の大きい順）</span>
+          <span className="lbl">{year}年{month ? `${month}月` : ""}の明細（金額の大きい順）</span>
           {!txs && (
             <div className="flex flex-col gap-2" role="status" aria-label="読み込み中">
               <Skeleton className="h-3.5 w-full" />
