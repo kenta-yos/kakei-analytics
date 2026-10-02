@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import LineChart from "@/components/charts/LineChart";
 import { Card, CardTitle, ErrorBox, Legend, Loading, Page, PageTitle, Segmented, useApi } from "@/components/ui/kit";
 import { ChevronDown } from "@/components/ui/icons";
@@ -51,7 +51,6 @@ export default function KessanPage() {
     <Page>
       <PageTitle kicker="決算" title="資産と損益" />
       <Segmented options={MODES} value={mode} onChange={setMode} />
-      {periods.length > 0 && <PeriodPicker periods={periods} selected={idx} onSelect={setSel} />}
 
       {error && <ErrorBox message={error} />}
       {loading && !p && <Loading />}
@@ -176,34 +175,6 @@ export default function KessanPage() {
         </>
       )}
     </Page>
-  );
-}
-
-/** 期間を選ぶボタンの列。横にスクロールでき、最初は最新の期間が見える位置にする */
-function PeriodPicker({ periods, selected, onSelect }: { periods: Period[]; selected: number; onSelect: (i: number) => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current?.querySelector<HTMLElement>('[aria-pressed="true"]');
-    el?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [selected, periods.length]);
-
-  return (
-    <div ref={ref} className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 lg:mx-0 lg:px-0">
-      {periods.map((p, i) => (
-        <button
-          key={p.label}
-          type="button"
-          aria-pressed={i === selected}
-          onClick={() => onSelect(i)}
-          className={`h-10 shrink-0 whitespace-nowrap rounded-full border px-3.5 text-[13px] ${
-            i === selected ? "border-ink bg-ink font-bold text-white" : "border-line bg-card text-ink"
-          }`}
-        >
-          {p.label}
-          {p.partial ? "（途中）" : ""}
-        </button>
-      ))}
-    </div>
   );
 }
 
