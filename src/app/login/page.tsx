@@ -30,27 +30,26 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-xs">
-        <h1 className="text-2xl font-bold text-white text-center mb-2">家計 Analytics</h1>
-        <p className="text-slate-500 text-sm text-center mb-8">パスワードを入力してください</p>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <h1 className="mb-2 text-center text-2xl font-bold">家計の締め</h1>
+        <p className="lbl mb-8 text-center">パスワードを入力してください</p>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <label htmlFor="password" className="sr-only">
+            パスワード
+          </label>
           <input
+            id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="パスワード"
             autoFocus
-            style={{ fontSize: "16px" }}
-            className="w-full bg-slate-800 text-white px-4 py-3 rounded-lg border border-slate-700 focus:border-blue-500 outline-none"
+            className="h-12 w-full rounded-xl border border-field bg-card px-4 text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent"
           />
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading || !password}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white font-semibold rounded-lg transition"
-          >
-            {loading ? "認証中..." : "ログイン"}
+          {error && <p className="text-sm text-over">{error}</p>}
+          <button type="submit" disabled={loading || !password} className="btn-primary w-full">
+            {loading ? "確認中…" : "ログイン"}
           </button>
         </form>
       </div>

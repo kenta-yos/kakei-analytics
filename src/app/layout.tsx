@@ -1,10 +1,19 @@
 import type { Metadata, Viewport } from "next";
+import { IBM_Plex_Sans_JP } from "next/font/google";
 import "./globals.css";
-import ClientLayout from "@/components/layout/ClientLayout";
+import AppShell from "@/components/layout/AppShell";
+
+const plex = IBM_Plex_Sans_JP({
+  weight: ["400", "500", "700"],
+  subsets: ["latin"],
+  variable: "--font-plex",
+  display: "swap",
+  preload: false,
+});
 
 export const metadata: Metadata = {
-  title: "家計 Analytics",
-  description: "Strategic Household Finance Management",
+  title: "家計の締め",
+  description: "月末の予算配分と、資産・損益の振り返り",
   icons: {
     icon: "/icon.png",
     apple: "/apple-icon.png",
@@ -12,21 +21,22 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "家計 Analytics",
-    statusBarStyle: "black-translucent",
+    title: "家計",
+    statusBarStyle: "default",
   },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#F4F3EF",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
-      <body className="bg-slate-950">
-        <ClientLayout>{children}</ClientLayout>
+    <html lang="ja" className={plex.variable}>
+      <body className="font-sans text-ink antialiased">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

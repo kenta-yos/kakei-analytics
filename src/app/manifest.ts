@@ -2,13 +2,13 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "家計 Analytics",
+    name: "家計の締め",
     short_name: "家計",
-    description: "Strategic Household Finance Management",
+    description: "月末の予算配分と、資産・損益の振り返り",
     start_url: "/",
     display: "standalone",
-    background_color: "#020617",
-    theme_color: "#020617",
+    background_color: "#F4F3EF",
+    theme_color: "#F4F3EF",
     icons: [
       {
         src: "/icon-192.png",

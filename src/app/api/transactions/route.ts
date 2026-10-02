@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get("type");
   const keyword = searchParams.get("keyword");
   const amount = searchParams.get("amount") ? parseInt(searchParams.get("amount")!) : null;
+  const sort = searchParams.get("sort"); // "amount" で金額の大きい順
   const page = parseInt(searchParams.get("page") ?? "1");
   const limit = parseInt(searchParams.get("limit") ?? "50");
   const offset = (page - 1) * limit;
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
         .select()
         .from(transactions)
         .where(where)
-        .orderBy(desc(transactions.date), asc(transactions.id))
+        .orderBy(...(sort === "amount" ? [desc(transactions.expenseAmount), desc(transactions.date)] : [desc(transactions.date), asc(transactions.id)]))
         .limit(limit)
         .offset(offset),
       db
