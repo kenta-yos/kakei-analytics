@@ -35,23 +35,40 @@ type FireData = {
 
 type AutoKey = keyof FireData["auto"];
 type InputKey = Exclude<keyof Plan, "nowAgeMonths">;
-type Field = { key: InputKey; name: string; unit: "円" | "%" | "歳" | "円/月" | "か月"; auto?: AutoKey; note?: string };
+type Group = "life" | "saving" | "market" | "pension";
+type Field = {
+  key: InputKey;
+  name: string;
+  unit: "円" | "%" | "歳" | "円/月" | "か月";
+  group: Group;
+  auto?: AutoKey;
+  note?: string;
+  /** ねんきん定期便から入れる項目 */
+  teikibin?: boolean;
+};
+
+const GROUPS: { key: Group; title: string }[] = [
+  { key: "life", title: "生活とリタイア" },
+  { key: "saving", title: "積立" },
+  { key: "market", title: "運用" },
+  { key: "pension", title: "年金" },
+];
 
 const FIELDS: Field[] = [
-  { key: "annualExpense", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
-  { key: "pensionStartAge", name: "年金の受給開始年齢", unit: "歳", note: "65歳より早いと1か月0.4%減、遅いと0.7%増" },
-  { key: "pensionBasicAnnual", name: "老齢基礎年金（これまで）", unit: "円", note: "ねんきん定期便「これまでの加入実績に応じた年金額」の年額" },
-  { key: "pensionMonths", name: "年金の加入期間", unit: "か月", note: "ねんきん定期便「年金加入期間 合計」" },
-  { key: "pensionKoseiAnnual", name: "老齢厚生年金（これまで）", unit: "円", note: "ねんきん定期便「老齢厚生年金」の年額" },
-  { key: "pensionSalary", name: "標準報酬月額（直近）", unit: "円", note: "ねんきん定期便「最近の月別状況」。リタイアまでの厚生年金の増え方に使う" },
-  { key: "retirementIncome", name: "年金以外の月収入", unit: "円/月", note: "副収入など。リタイア直後から支出に充てる" },
-  { key: "endAge", name: "何歳まで資産で暮らすか", unit: "歳", note: "この年齢でちょうど使い切る計算" },
-  { key: "targetRetireAge", name: "リタイアしたい年齢", unit: "歳", note: "逆算に使う" },
-  { key: "fundContribution", name: "投信への毎月の積立", unit: "円", auto: "fundContribution", note: "原資から。振替の実績（直近6か月の中央値）" },
-  { key: "ideco", name: "iDeCo の毎月の拠出", unit: "円", auto: "ideco", note: "原資から。振替の実績（直近6か月の中央値）" },
-  { key: "poolInflow", name: "原資への毎月の追加", unit: "円", auto: "poolInflow", note: "予算「貯蓄（投信）」の配分の実績（直近6か月の中央値）" },
-  { key: "returnRate", name: "想定利回り（年）", unit: "%" },
-  { key: "inflation", name: "インフレ率（年）", unit: "%" },
+  { key: "annualExpense", group: "life", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
+  { key: "retirementIncome", group: "life", name: "年金以外の月収入", unit: "円/月", note: "副収入など。リタイア直後から支出に充てる" },
+  { key: "endAge", group: "life", name: "何歳まで資産で暮らすか", unit: "歳", note: "この年齢でちょうど使い切る計算" },
+  { key: "targetRetireAge", group: "life", name: "リタイアしたい年齢", unit: "歳", note: "逆算に使う" },
+  { key: "fundContribution", group: "saving", name: "投信への毎月の積立", unit: "円", auto: "fundContribution", note: "原資から。振替の実績（直近6か月の中央値）" },
+  { key: "ideco", group: "saving", name: "iDeCo の毎月の拠出", unit: "円", auto: "ideco", note: "原資から。振替の実績（直近6か月の中央値）" },
+  { key: "poolInflow", group: "saving", name: "原資への毎月の追加", unit: "円", auto: "poolInflow", note: "予算「貯蓄（投信）」の配分の実績（直近6か月の中央値）" },
+  { key: "returnRate", group: "market", name: "想定利回り（年）", unit: "%" },
+  { key: "inflation", group: "market", name: "インフレ率（年）", unit: "%" },
+  { key: "pensionStartAge", group: "pension", name: "受給開始年齢", unit: "歳", note: "65歳より早いと1か月0.4%減、遅いと0.7%増" },
+  { key: "pensionBasicAnnual", group: "pension", teikibin: true, name: "老齢基礎年金（これまで）", unit: "円", note: "「これまでの加入実績に応じた年金額」の年額" },
+  { key: "pensionKoseiAnnual", group: "pension", teikibin: true, name: "老齢厚生年金（これまで）", unit: "円", note: "同じく老齢厚生年金の年額" },
+  { key: "pensionMonths", group: "pension", teikibin: true, name: "加入期間の合計", unit: "か月", note: "「年金加入期間 合計」" },
+  { key: "pensionSalary", group: "pension", teikibin: true, name: "標準報酬月額（直近）", unit: "円", note: "「最近の月別状況」。リタイアまでの厚生年金の増え方に使う" },
 ];
 
 const OVERRIDE: Partial<Record<InputKey, keyof Settings>> = {
@@ -270,54 +287,63 @@ export default function FirePage() {
           )}
         </div>
 
-        <div className="flex min-h-14 items-center justify-between gap-3 border-t border-line2 py-2">
-          <div>
-            <span className="block text-sm">現在の年齢</span>
-            <span className="lbl">誕生日から自動（日本時間）</span>
-          </div>
-          <span className="text-base font-bold">{data.age}歳</span>
-        </div>
-
-        {FIELDS.map((f) => (
-          <div key={f.key} className="flex min-h-14 items-center justify-between gap-3 border-t border-line2 py-2">
-            <div className="min-w-0">
-              <label htmlFor={`fire-${f.key}`} className="block text-sm">
-                {f.name}
-              </label>
-              <span className="lbl">{source(f)}</span>
-              {draft && f.auto && (
-                <button type="button" className="block min-h-6 text-xs text-accent" onClick={() => setDraft({ ...draft, [f.key]: num(data.auto[f.auto!]) })}>
-                  実績の値に戻す
-                </button>
-              )}
-              {draft && f.key === "returnRate" && ar && (
-                <button type="button" className="block min-h-6 text-xs text-accent" onClick={() => setDraft({ ...draft, returnRate: String(ar.annualized) })}>
-                  実績の値を使う
-                </button>
-              )}
-              {draft && f.key === "inflation" && (
-                <label className="flex min-h-6 items-center gap-1.5 text-xs text-accent">
-                  <input type="checkbox" className="accent-accent" checked={markReviewed} onChange={(e) => setMarkReviewed(e.target.checked)} />
-                  この値で見直し済みにする
-                </label>
-              )}
-            </div>
-            {draft ? (
-              <div className="flex shrink-0 items-center gap-1.5">
-                <input
-                  id={`fire-${f.key}`}
-                  inputMode="decimal"
-                  value={draft[f.key]}
-                  onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-                  onFocus={(e) => e.target.select()}
-                  className="h-11 w-[124px] rounded-[10px] border border-field px-2.5 text-right text-base font-bold outline-none focus:border-accent focus:ring-2 focus:ring-accent"
-                />
-                <span className="w-8 text-[13px] text-sub">{f.unit}</span>
+        {GROUPS.map((g) => (
+          <section key={g.key} className="mt-2">
+            <h3 className="pb-1.5 pt-3 text-xs font-bold text-sub">{g.title}</h3>
+            {g.key === "life" && (
+              <div className="flex min-h-14 items-center justify-between gap-3 border-t border-line2 py-2">
+                <div>
+                  <span className="block text-sm">現在の年齢</span>
+                  <span className="lbl">誕生日から自動（日本時間）</span>
+                </div>
+                <span className="text-base font-bold">{data.age}歳</span>
               </div>
-            ) : (
-              <span className="shrink-0 text-base font-bold">{show(f)}</span>
             )}
-          </div>
+            {FIELDS.filter((f) => f.group === g.key).map((f) => (
+              <div key={f.key} className="flex min-h-14 items-center justify-between gap-3 border-t border-line2 py-2">
+                <div className="min-w-0">
+                  <label htmlFor={`fire-${f.key}`} className="block text-sm">
+                    {f.name}
+                  </label>
+                  {f.teikibin && (
+                    <span className="mb-0.5 inline-block rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-bold text-accent">ねんきん定期便</span>
+                  )}
+                  <span className="lbl">{source(f)}</span>
+                  {draft && f.auto && (
+                    <button type="button" className="block min-h-6 text-xs text-accent" onClick={() => setDraft({ ...draft, [f.key]: num(data.auto[f.auto!]) })}>
+                      実績の値に戻す
+                    </button>
+                  )}
+                  {draft && f.key === "returnRate" && ar && (
+                    <button type="button" className="block min-h-6 text-xs text-accent" onClick={() => setDraft({ ...draft, returnRate: String(ar.annualized) })}>
+                      実績の値を使う
+                    </button>
+                  )}
+                  {draft && f.key === "inflation" && (
+                    <label className="flex min-h-6 items-center gap-1.5 text-xs text-accent">
+                      <input type="checkbox" className="accent-accent" checked={markReviewed} onChange={(e) => setMarkReviewed(e.target.checked)} />
+                      この値で見直し済みにする
+                    </label>
+                  )}
+                </div>
+                {draft ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <input
+                      id={`fire-${f.key}`}
+                      inputMode="decimal"
+                      value={draft[f.key]}
+                      onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                      onFocus={(e) => e.target.select()}
+                      className="h-11 w-[124px] rounded-[10px] border border-field px-2.5 text-right text-base font-bold outline-none focus:border-accent focus:ring-2 focus:ring-accent"
+                    />
+                    <span className="w-8 text-[13px] text-sub">{f.unit}</span>
+                  </div>
+                ) : (
+                  <span className="shrink-0 text-base font-bold">{show(f)}</span>
+                )}
+              </div>
+            ))}
+          </section>
         ))}
 
         {draft && (
