@@ -126,7 +126,13 @@ export default function PacePage() {
                       year={data.year}
                       month={scope === "month" ? data.month.month : undefined}
                       months={scope === "year" ? data.upToMonth : 1}
-                      projected={scope === "month"}
+                      currentLabel={
+                        scope === "month"
+                          ? data.month.day >= data.month.daysInMonth
+                            ? `${data.month.month}月の支出`
+                            : `${data.month.month}月の見込み`
+                          : "今年"
+                      }
                       c={c}
                       open={open === c.category}
                       onToggle={() => setOpen(open === c.category ? null : c.category)}
@@ -295,7 +301,7 @@ function CategoryRow({
   year,
   month,
   months,
-  projected,
+  currentLabel,
   c,
   open,
   onToggle,
@@ -304,8 +310,8 @@ function CategoryRow({
   month?: number;
   /** 何か月分の累計か（1 なら月あたりは出さない） */
   months: number;
-  /** 今年の値が今月末の見込みか */
-  projected?: boolean;
+  /** 今年の値のラベル（「今年」「10月の見込み」など） */
+  currentLabel: string;
   c: CategoryBand;
   open: boolean;
   onToggle: () => void;
@@ -350,7 +356,7 @@ function CategoryRow({
           />
         </div>
         <div className="lbl">
-          {projected ? "今月末の見込み" : "今年"} {yen(c.current)} · 例年 {yen(c.min)}〜{num(c.max)}
+          {currentLabel} {yen(c.current)} · 例年 {yen(c.min)}〜{num(c.max)}
           {months > 1 && ` · 月平均 今年 ${num(c.current / months)} / 例年 ${num(c.avg / months)}`}
         </div>
       </button>
