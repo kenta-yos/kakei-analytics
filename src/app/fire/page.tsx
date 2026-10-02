@@ -211,12 +211,6 @@ export default function FirePage() {
                 {retireAt.year}年{retireAt.month}月
               </span>
             </span>
-            <span className="text-[13px] text-sub">
-              そのとき必要な資産 {man(forward.required)}（{p.endAge}歳まで）
-            </span>
-            <span className="text-[13px] text-sub">
-              年金 月 {yen(pensionAt(forward.ageMonths, p))}（{p.pensionStartAge}歳から）
-            </span>
           </>
         ) : (
           <>
@@ -224,7 +218,6 @@ export default function FirePage() {
             <span className="text-[13px] text-sub">前提を見直してください</span>
           </>
         )}
-        <span className="lbl mt-1">いまの投資資産 {yen(total)}</span>
       </Card>
 
       {reverse && (
