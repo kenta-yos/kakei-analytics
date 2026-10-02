@@ -16,6 +16,8 @@ type Settings = {
   inflationReviewedOn: string | null;
   endAge: number;
   retirementIncome: number;
+  pensionMonthly: number;
+  pensionStartAge: number;
   targetRetireAge: number;
 };
 type Account = { name: string; role: "pool" | "invested"; balance: number; source: string; asOf: { year: number; month: number } | null };
@@ -33,7 +35,9 @@ type Field = { key: keyof Plan; name: string; unit: "円" | "%" | "歳" | "円/�
 
 const FIELDS: Field[] = [
   { key: "annualExpense", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
-  { key: "retirementIncome", name: "リタイア後の月収入", unit: "円/月", note: "年金・副収入など。支出から差し引く" },
+  { key: "pensionMonthly", name: "年金の月額", unit: "円/月", note: "ねんきん定期便の見込額。受給開始から支出に充てる" },
+  { key: "pensionStartAge", name: "年金の受給開始年齢", unit: "歳", note: "繰り上げ・繰り下げをするならその年齢" },
+  { key: "retirementIncome", name: "年金以外の月収入", unit: "円/月", note: "副収入など。リタイア直後から支出に充てる" },
   { key: "endAge", name: "何歳まで資産で暮らすか", unit: "歳", note: "この年齢でちょうど使い切る計算" },
   { key: "targetRetireAge", name: "リタイアしたい年齢", unit: "歳", note: "逆算に使う" },
   { key: "fundContribution", name: "投信への毎月の積立", unit: "円", auto: "fundContribution", note: "原資から。振替の実績（直近6か月の中央値）" },
@@ -61,6 +65,8 @@ function toPlan(d: FireData): Plan {
     inflation: s.inflationRate / 100,
     endAge: s.endAge,
     retirementIncome: s.retirementIncome,
+    pensionMonthly: s.pensionMonthly,
+    pensionStartAge: s.pensionStartAge,
     targetRetireAge: s.targetRetireAge,
   };
 }
@@ -147,6 +153,8 @@ export default function FirePage() {
           poolInflowOverride: override("poolInflow"),
           endAge: Math.round(parse("endAge")),
           retirementIncome: Math.round(parse("retirementIncome")),
+          pensionMonthly: Math.round(parse("pensionMonthly")),
+          pensionStartAge: Math.round(parse("pensionStartAge")),
           targetRetireAge: Math.round(parse("targetRetireAge")),
         }),
       });
@@ -308,8 +316,8 @@ export default function FirePage() {
         <summary className="cursor-pointer text-sm font-bold text-ink">計算のしかた</summary>
         <ol className="mt-2 list-decimal space-y-1.5 pl-5">
           <li>
-            <b>必要な資産：</b>リタイアした時点から{p.endAge}歳まで、毎月「支出 − リタイア後の月収入」を取り崩し、残りは運用し続けて、{p.endAge}
-            歳でちょうど使い切る額。早くリタイアするほど期間が長く、必要な資産は大きくなります。
+            <b>必要な資産：</b>リタイアした時点から{p.endAge}歳まで、毎月「支出 − 年金以外の月収入」を取り崩し（{p.pensionStartAge}
+            歳からは年金の分だけ少なくなる）、残りは運用し続けて、{p.endAge}歳でちょうど使い切る額。早くリタイアするほど期間が長く、必要な資産は大きくなります。
           </li>
           <li>
             <b>資産の増え方：</b>毎月、原資に追加分を足し、原資から投信・iDeCo へ積み立てる。運用中のお金には実質利回り（利回り − インフレ率 ＝ 年

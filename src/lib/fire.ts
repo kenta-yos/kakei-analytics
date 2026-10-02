@@ -1,8 +1,8 @@
 /**
  * FIRE 試算（画面で使うので DB に依存させない）
  *
- * 必要な資産: リタイアした時点から「何歳まで」の各月、(月の支出 − リタイア後の月収入) を取り崩し、
- *            残りは実質利回りで運用し続けて、ちょうど使い切る額（期首払いの年金現価）。
+ * 必要な資産: リタイアした時点から「何歳まで」の各月、(月の支出 − 年金以外の月収入 − 年金) を取り崩し、
+ *            残りは実質利回りで運用し続けて、ちょうど使い切る額。年金は受給開始年齢から差し引く。
  * 資産の推移: 原資（現金・利回りなし）に毎月の追加を足し、原資から投信・iDeCo へ移す。
  *            運用中の資産には実質利回り（利回り − インフレ率）を乗せる。
  */
@@ -15,20 +15,27 @@ export type Plan = {
   returnRate: number; // %
   inflation: number; // %
   endAge: number; // 何歳まで暮らせればいいか
-  retirementIncome: number; // リタイア後の月収入
+  retirementIncome: number; // リタイア後の年金以外の月収入
+  pensionMonthly: number; // 年金の月額
+  pensionStartAge: number; // 年金の受給開始年齢
   targetRetireAge: number; // 逆算: 何歳でリタイアしたいか
 };
 
 const realMonthlyRate = (p: Plan) => (p.returnRate - p.inflation) / 100 / 12;
 
-/** 年齢（月単位）でリタイアしたときに必要な資産 */
+/** 年齢（月単位）でリタイアしたときに必要な資産。各月の取り崩しを今の価値に割り引いて足し合わせる */
 export function requiredAt(ageMonths: number, p: Plan) {
-  const months = p.endAge * 12 - ageMonths;
-  const net = p.annualExpense / 12 - p.retirementIncome;
-  if (months <= 0 || net <= 0) return 0;
+  const end = p.endAge * 12;
   const r = realMonthlyRate(p);
-  if (Math.abs(r) < 1e-9) return net * months;
-  return net * ((1 - Math.pow(1 + r, -months)) / r) * (1 + r);
+  const base = p.annualExpense / 12 - p.retirementIncome;
+  let total = 0;
+  let discount = 1;
+  for (let m = ageMonths; m < end; m++) {
+    const net = base - (m >= p.pensionStartAge * 12 ? p.pensionMonthly : 0);
+    if (net > 0) total += net * discount;
+    discount /= 1 + r;
+  }
+  return total;
 }
 
 type State = { pool: number; invested: number };

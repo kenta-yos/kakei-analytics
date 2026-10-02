@@ -57,6 +57,13 @@
       "when": 1790922317411,
       "tag": "0007_fire_plan",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790923095101,
+      "tag": "0008_fire_pension",
+      "breakpoints": true
     }
   ]
 }

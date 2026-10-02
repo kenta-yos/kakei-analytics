@@ -115,6 +115,8 @@ export async function GET() {
       inflationReviewedOn: (s?.reviewed as string | null) ?? null,
       endAge: Number(s?.end_age ?? 95),
       retirementIncome: Number(s?.retirement_income ?? 0),
+      pensionMonthly: Number(s?.pension_monthly ?? 0),
+      pensionStartAge: Number(s?.pension_start_age ?? 65),
       targetRetireAge: Number(s?.target_retire_age ?? 50),
     };
     const age = settings.birthDate ? ageOn(settings.birthDate) : settings.currentAge;
@@ -202,6 +204,8 @@ export async function POST(req: NextRequest) {
       inflationReviewedOn: reviewed,
       endAge: b.endAge ?? 95,
       retirementIncome: b.retirementIncome ?? 0,
+      pensionMonthly: b.pensionMonthly ?? 0,
+      pensionStartAge: b.pensionStartAge ?? 65,
       targetRetireAge: b.targetRetireAge ?? 50,
     };
     await db

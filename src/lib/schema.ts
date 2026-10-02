@@ -192,7 +192,9 @@ export const fireSettings = pgTable("fire_settings", {
   birthDate: date("birth_date"), // 年齢は日本時間の今日から自動計算する
   inflationReviewedOn: date("inflation_reviewed_on"), // 前提条件（インフレ率など）を最後に見直した日
   endAge: integer("end_age").notNull().default(95), // 何歳まで資産で暮らせればいいか
-  retirementIncome: integer("retirement_income").notNull().default(0), // リタイア後の月収入（年金・副収入など）
+  retirementIncome: integer("retirement_income").notNull().default(0), // リタイア後の年金以外の月収入（副収入など）
+  pensionMonthly: integer("pension_monthly").notNull().default(0), // 年金の月額
+  pensionStartAge: integer("pension_start_age").notNull().default(65), // 年金の受給開始年齢
   targetRetireAge: integer("target_retire_age").notNull().default(50), // 逆算: 何歳でリタイアしたいか
   updatedAt: timestamp("updated_at").defaultNow(),
 });
