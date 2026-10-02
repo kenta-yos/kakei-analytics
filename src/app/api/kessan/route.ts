@@ -18,7 +18,7 @@ import { ymKey } from "@/lib/format";
 type Mode = "month" | "quarter" | "year";
 
 /** 家計の収支の内訳に出すカテゴリの数 */
-const TOP_CATEGORIES = 5;
+const TOP_CATEGORIES = 8;
 /** 運用損益の内訳に出す口座 */
 const INVESTED_ASSETS = INVESTMENT_ACCOUNTS.filter((a) => a.role === "invested").map((a) => a.asset);
 
