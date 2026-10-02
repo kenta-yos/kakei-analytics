@@ -8,6 +8,9 @@ const CATEGORY_ORDER = [
 /** 貯蓄・積立扱いのカテゴリ（消費ではないので分析から除く） */
 export const SAVINGS_CATEGORIES = new Set(["貯蓄", "貯蓄（投信）"]);
 
+/** 分析に含めないカテゴリ（補正用・使わなくなったもの） */
+export const EXCLUDED_FROM_ANALYSIS = new Set(["残高不一致", "❌元テニス"]);
+
 /** 賞与を財源にする特別経費 */
 export const BONUS_CATEGORY = "特別経費B";
 

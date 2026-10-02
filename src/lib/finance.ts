@@ -4,7 +4,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { BONUS_CATEGORY, SAVINGS_CATEGORIES } from "@/lib/categories";
+import { BONUS_CATEGORY, EXCLUDED_FROM_ANALYSIS, SAVINGS_CATEGORIES } from "@/lib/categories";
 import { prevMonth, ymKey } from "@/lib/format";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,8 +27,10 @@ const EXPENSE_WHERE = sql`type = '支出' AND exclude_from_pl = false AND catego
 
 const SAVINGS_LIST = sql.join(Array.from(SAVINGS_CATEGORIES).map((c) => sql`${c}`), sql`, `);
 
-/** 消費としての支出（貯蓄カテゴリを除く） */
-const CONSUMPTION_WHERE = sql`${EXPENSE_WHERE} AND category NOT IN (${SAVINGS_LIST})`;
+const EXCLUDED_LIST = sql.join(Array.from(EXCLUDED_FROM_ANALYSIS).map((c) => sql`${c}`), sql`, `);
+
+/** 分析に使う消費としての支出（貯蓄カテゴリと、分析に含めないカテゴリを除く） */
+const CONSUMPTION_WHERE = sql`${EXPENSE_WHERE} AND category NOT IN (${SAVINGS_LIST}) AND category NOT IN (${EXCLUDED_LIST})`;
 
 /** 投資商品 → 資産名（拠出額の判定に使う） */
 export const PRODUCT_TO_ASSET: Record<string, string> = {
