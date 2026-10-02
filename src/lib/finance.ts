@@ -88,6 +88,21 @@ export async function getMonthlyPL(fromYm = 0) {
   }));
 }
 
+/** 月・カテゴリ別の PL（カテゴリ名は元の CSV のまま） */
+export async function getMonthlyPLByCategory(fromYm = 0) {
+  const r = await rows(sql`
+    SELECT (year * 100 + month) AS ym, category, sum(income_amount) AS income, sum(expense_amount) AS expense
+    FROM transactions
+    WHERE ${PL_WHERE} AND (year * 100 + month) >= ${fromYm}
+    GROUP BY ym, category
+  `);
+  return r.map((x) => ({
+    ym: Number(x.ym),
+    category: String(x.category ?? "未分類"),
+    net: Number(x.income ?? 0) - Number(x.expense ?? 0),
+  }));
+}
+
 /** 1か月の PL 収入（予算配分の上限に使う） */
 export async function getMonthIncome(year: number, month: number) {
   const [r] = await rows(sql`
@@ -201,7 +216,8 @@ export async function getInvestmentGainByMonth() {
   const contrib = new Map<string, number>();
   contribs.forEach((c) => contrib.set(`${c.asset_name}:${c.ym}`, Number(c.amount)));
 
-  const gains = new Map<number, number>();
+  // 月 → 資産名（投資信託/SBI・iDeCo）ごとの運用損益
+  const gains = new Map<number, Record<string, number>>();
   vals.forEach((v) => {
     const ym = Number(v.ym);
     const p = prevMonth(Math.floor(ym / 100), ym % 100);
@@ -210,7 +226,9 @@ export async function getInvestmentGainByMonth() {
     const asset = PRODUCT_TO_ASSET[String(v.product_name)];
     if (!asset) return;
     const gain = Number(v.market_value) - prevVal - (contrib.get(`${asset}:${ym}`) ?? 0);
-    gains.set(ym, (gains.get(ym) ?? 0) + gain);
+    const byAsset = gains.get(ym) ?? {};
+    byAsset[asset] = (byAsset[asset] ?? 0) + gain;
+    gains.set(ym, byAsset);
   });
   return gains;
 }

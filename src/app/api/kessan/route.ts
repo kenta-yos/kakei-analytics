@@ -10,10 +10,17 @@ import {
   getLatestData,
   getLatestValuationMonth,
   getMonthlyPL,
+  getMonthlyPLByCategory,
+  INVESTMENT_ACCOUNTS,
 } from "@/lib/finance";
 import { ymKey } from "@/lib/format";
 
 type Mode = "month" | "quarter" | "year";
+
+/** 家計の収支の内訳に出すカテゴリの数 */
+const TOP_CATEGORIES = 5;
+/** 運用損益の内訳に出す口座 */
+const INVESTED_ASSETS = INVESTMENT_ACCOUNTS.filter((a) => a.role === "invested").map((a) => a.asset);
 
 type Period = { label: string; shortLabel: string; startYm: number; endYm: number };
 
@@ -65,8 +72,9 @@ export async function GET(req: NextRequest) {
     const latest = await getLatestData();
     if (!latest) return NextResponse.json({ data: { periods: [] } });
 
-    const [pl, assets, gains, valuation] = await Promise.all([
+    const [pl, plByCategory, assets, gains, valuation] = await Promise.all([
       getMonthlyPL(),
+      getMonthlyPLByCategory(),
       getAssetSeries(),
       getInvestmentGainByMonth(),
       getLatestValuationMonth(),
@@ -93,10 +101,29 @@ export async function GET(req: NextRequest) {
       });
       const income = months.reduce((s, r) => s + r.income, 0);
       const expense = months.reduce((s, r) => s + r.expense, 0);
-      let investGain = 0;
+      // 投資の運用損益: 投資信託/SBI・iDeCo の内訳
+      const gainByAsset: Record<string, number> = {};
       gains.forEach((g, k) => {
-        if (k >= p.startYm && k <= p.endYm) investGain += g;
+        if (k < p.startYm || k > p.endYm) return;
+        Object.entries(g).forEach(([name, v]) => (gainByAsset[name] = (gainByAsset[name] ?? 0) + v));
       });
+      const investGain = Object.values(gainByAsset).reduce((s, v) => s + v, 0);
+      const investItems = INVESTED_ASSETS.map((name) => ({ name, value: gainByAsset[name] ?? 0 }));
+
+      // 家計の収支: 影響の大きいカテゴリ（収入はプラス、支出はマイナス）の上位
+      const catNet: Record<string, number> = {};
+      plByCategory.forEach((r) => {
+        if (r.ym >= p.startYm && r.ym <= p.endYm) catNet[r.category] = (catNet[r.category] ?? 0) + r.net;
+      });
+      const ranked = Object.entries(catNet)
+        .map(([name, value]) => ({ name, value }))
+        .filter((x) => x.value !== 0)
+        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+      const top = ranked.slice(0, TOP_CATEGORIES);
+      const rest = ranked.slice(TOP_CATEGORIES);
+      const operatingItems = rest.length
+        ? [...top, { name: `その他（${rest.length}件）`, value: rest.reduce((s, x) => s + x.value, 0) }]
+        : top;
 
       const end = assetAt(p.endYm);
       const start = assetAt(beforeYm(p.startYm));
@@ -134,6 +161,8 @@ export async function GET(req: NextRequest) {
         expense,
         operating,
         investGain,
+        operatingItems,
+        investItems,
         total: operating + investGain,
         netAssets,
         change,

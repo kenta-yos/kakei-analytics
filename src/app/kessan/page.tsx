@@ -17,6 +17,8 @@ type Period = {
   expense: number;
   operating: number;
   investGain: number;
+  operatingItems: { name: string; value: number }[];
+  investItems: { name: string; value: number }[];
   total: number;
   netAssets: number | null;
   change: number | null;
@@ -40,6 +42,7 @@ export default function KessanPage() {
   const { data, error, loading } = useApi<KessanData>(`/api/kessan?mode=${mode}`);
   const [sel, setSel] = useState<number | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [openPl, setOpenPl] = useState<string | null>(null);
 
   useEffect(() => setSel(null), [mode]);
 
@@ -166,8 +169,22 @@ export default function KessanPage() {
             <div className="flex flex-col border-t border-line2">
               <PlRow name="収入" value={yen(p.income)} />
               <PlRow name="支出" value={yen(p.expense)} />
-              <PlRow name="家計の収支" value={signed(p.operating)} tone={p.operating} />
-              <PlRow name="投資の運用損益" value={signed(p.investGain)} tone={p.investGain} />
+              <PlRow
+                name="家計の収支"
+                value={signed(p.operating)}
+                tone={p.operating}
+                items={p.operatingItems}
+                open={openPl === "operating"}
+                onToggle={() => setOpenPl(openPl === "operating" ? null : "operating")}
+              />
+              <PlRow
+                name="投資の運用損益"
+                value={signed(p.investGain)}
+                tone={p.investGain}
+                items={p.investItems}
+                open={openPl === "invest"}
+                onToggle={() => setOpenPl(openPl === "invest" ? null : "invest")}
+              />
               <PlRow name={`総合損益（${p.label}）`} value={signed(p.total)} tone={p.total} bold />
             </div>
           </Card>
@@ -235,11 +252,52 @@ function PlBars({ periods, selected, onSelect }: { periods: Period[]; selected: 
   );
 }
 
-function PlRow({ name, value, tone, bold }: { name: string; value: string; tone?: number; bold?: boolean }) {
+function PlRow({
+  name,
+  value,
+  tone,
+  bold,
+  items,
+  open,
+  onToggle,
+}: {
+  name: string;
+  value: string;
+  tone?: number;
+  bold?: boolean;
+  items?: { name: string; value: number }[];
+  open?: boolean;
+  onToggle?: () => void;
+}) {
+  const toneClass = tone === undefined ? "" : tone >= 0 ? "text-accent" : "text-over";
+  if (!items || !onToggle) {
+    return (
+      <div className={`flex justify-between border-b border-line2 py-2.5 text-sm ${bold ? "font-bold" : ""}`}>
+        <span>{name}</span>
+        <span className={`font-bold ${toneClass}`}>{value}</span>
+      </div>
+    );
+  }
   return (
-    <div className={`flex justify-between border-b border-line2 py-2.5 text-sm ${bold ? "font-bold" : ""}`}>
-      <span>{name}</span>
-      <span className={`font-bold ${tone === undefined ? "" : tone >= 0 ? "text-accent" : "text-over"}`}>{value}</span>
+    <div className="border-b border-line2">
+      <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-h-11 w-full items-center justify-between gap-2 py-2.5 text-left text-sm">
+        <span className="flex items-center gap-1">
+          {name}
+          <ChevronDown size={14} className={`text-sub transition-transform ${open ? "rotate-180" : ""}`} />
+        </span>
+        <span className={`font-bold ${toneClass}`}>{value}</span>
+      </button>
+      {open && (
+        <div className="mb-2.5 flex flex-col gap-1.5 rounded-[10px] bg-panel px-3 py-2.5">
+          {items.length === 0 && <span className="text-[13px] text-mute">なし</span>}
+          {items.map((i) => (
+            <div key={i.name} className="flex items-baseline justify-between gap-2 text-[13px]">
+              <span className="min-w-0">{i.name}</span>
+              <span className={`shrink-0 font-bold ${i.value === 0 ? "text-mute" : i.value > 0 ? "text-accent" : "text-over"}`}>{signed(i.value)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
