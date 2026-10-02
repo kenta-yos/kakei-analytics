@@ -49,7 +49,7 @@ const FIELDS: Field[] = [
   { key: "annualExpense", name: "年間支出", unit: "円", auto: "annualExpense", note: "直近12か月の実績から" },
   { key: "fundContribution", name: "投信への毎月の積立", unit: "円", auto: "fundContribution", note: "原資から。振替の実績（直近6か月の中央値）" },
   { key: "ideco", name: "iDeCo の毎月の拠出", unit: "円", auto: "ideco", note: "原資から。振替の実績（直近6か月の中央値）" },
-  { key: "poolInflow", name: "原資への毎月の追加", unit: "円", auto: "poolInflow", note: "残高の増減から逆算した実績（直近6か月の中央値）" },
+  { key: "poolInflow", name: "原資への毎月の追加", unit: "円", auto: "poolInflow", note: "予算「貯蓄（投信）」の配分の実績（直近6か月の中央値）" },
   { key: "returnRate", name: "想定利回り（年）", unit: "%" },
   { key: "inflation", name: "インフレ率（年）", unit: "%" },
   { key: "withdrawal", name: "取り崩し率", unit: "%" },

@@ -18,7 +18,8 @@ import { ageOn, prevMonth, todayJst, ymKey } from "@/lib/format";
 const ACCOUNTS = INVESTMENT_ACCOUNTS;
 const FUND_ASSET = "投資信託/SBI";
 const IDECO_ASSET = "iDeCo";
-const POOL_ASSETS = INVESTMENT_ACCOUNTS.filter((a) => a.role === "pool").map((a) => a.asset);
+/** 原資への追加は、この予算カテゴリへの配分の実績 */
+const POOL_BUDGET_CATEGORY = "貯蓄（投信）";
 /** 実績利回りを見る期間（最大） */
 const RETURN_WINDOW_MONTHS = 36;
 
@@ -89,8 +90,8 @@ export async function GET() {
         GROUP BY asset_name, ym
       `),
       q(sql`
-        SELECT asset_name, (year * 100 + month) AS ym, closing_balance FROM asset_snapshots
-        WHERE asset_name IN (${sql.join(POOL_ASSETS.map((a) => sql`${a}`), sql`, `)})
+        SELECT (year * 100 + month) AS ym, allocation FROM budgets
+        WHERE category_name = ${POOL_BUDGET_CATEGORY} AND (year * 100 + month) <= ${ymKey(now.year, now.month)}
       `),
       q(sql`
         SELECT year, month, sum(expense_amount) AS expense FROM transactions
@@ -146,19 +147,8 @@ export async function GET() {
     const transfer = (asset: string, ym: number) =>
       Number(transferRows.find((r) => r.asset_name === asset && Number(r.ym) === ym)?.amount ?? 0);
 
-    // 原資への追加の実績: 原資の残高の増減 + 原資から投信・iDeCo へ移した額
-    const poolAt = (ym: number) =>
-      POOL_ASSETS.reduce((sum, asset) => {
-        const latestSnap = poolRows
-          .filter((r) => r.asset_name === asset && Number(r.ym) <= ym)
-          .sort((x, y) => Number(y.ym) - Number(x.ym))[0];
-        return sum + Number(latestSnap?.closing_balance ?? 0);
-      }, 0);
-    const before = (ym: number) => {
-      const p = prevMonth(Math.floor(ym / 100), ym % 100);
-      return ymKey(p.year, p.month);
-    };
-    const poolInflow = median(months.map((ym) => poolAt(ym) - poolAt(before(ym)) + transfer(FUND_ASSET, ym) + transfer(IDECO_ASSET, ym)));
+    // 原資への追加: 予算「貯蓄（投信）」への配分の実績（直近6か月の中央値）
+    const poolInflow = median(months.map((ym) => Number(poolRows.find((r) => Number(r.ym) === ym)?.allocation ?? 0)));
 
     const actualReturn = investmentReturn(valRows, transferRows);
 
