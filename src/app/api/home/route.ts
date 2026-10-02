@@ -11,13 +11,7 @@ import {
   getMonthIncome,
   getSavedBudgets,
 } from "@/lib/finance";
-import { nextMonth, prevMonth, ymKey } from "@/lib/format";
-
-/** 日本時間の今日 */
-function todayJst() {
-  const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
-}
+import { nextMonth, prevMonth, todayJst, ymKey } from "@/lib/format";
 
 export async function GET(req: NextRequest) {
   try {

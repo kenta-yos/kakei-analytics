@@ -189,6 +189,8 @@ export const fireSettings = pgTable("fire_settings", {
   monthlySavingsOverride: integer("monthly_savings_override"), // 投信への毎月の積立。null = 自動（振替の実績）
   monthlyIdecoOverride: integer("monthly_ideco_override"), // iDeCo の毎月の拠出。null = 自動（振替の実績）
   poolInflowOverride: integer("pool_inflow_override"), // 原資（ゆうちょ投資用・SBI証券）への毎月の追加。null = 自動（予算「貯蓄（投信）」）
+  birthDate: date("birth_date"), // 年齢は日本時間の今日から自動計算する
+  inflationReviewedOn: date("inflation_reviewed_on"), // 前提条件（インフレ率など）を最後に見直した日
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

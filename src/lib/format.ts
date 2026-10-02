@@ -30,3 +30,17 @@ export function nextMonth(year: number, month: number) {
 export function ymKey(year: number, month: number): number {
   return year * 100 + month;
 }
+
+/** 日本時間の今日 */
+export function todayJst() {
+  const d = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+/** 誕生日（YYYY-MM-DD）から、日本時間の今日時点の年齢 */
+export function ageOn(birthDate: string, today = todayJst()) {
+  const [y, m, d] = birthDate.split("-").map(Number);
+  let age = today.year - y;
+  if (today.month < m || (today.month === m && today.day < d)) age--;
+  return age;
+}

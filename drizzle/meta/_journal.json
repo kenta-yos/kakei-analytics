@@ -36,6 +36,20 @@
       "when": 1790920464663,
       "tag": "0004_fire_pool",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790921140256,
+      "tag": "0005_fire_birth_date",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790921188915,
+      "tag": "0006_fire_inflation_review",
+      "breakpoints": true
     }
   ]
 }
