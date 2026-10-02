@@ -49,7 +49,7 @@ const PREMISE = [
   "- 毎月、前月の収入を上限に、翌月の予算をカテゴリごとに配分しています。予算の残り（または超過）は翌月に繰り越します。",
   `- 「${BONUS_CATEGORY}」は賞与を財源にした特別経費の枠です。賞与の月に大きく積み増し、毎月の定額配分と合わせて少しずつ使います。`,
   "- 貯蓄・積立のカテゴリは支出の分析から除いています。",
-  "- 「例年の幅」は比べる年の平均 ± 標準偏差（下限 0）です。",
+  "- 「例年の幅」は比べる年の平均 ± 標準偏差 × 0.5（下限 0）です。",
 ].join("\n");
 
 export async function buildExport(view: ExportView, opt: ExportOptions): Promise<{ title: string; markdown: string }> {
