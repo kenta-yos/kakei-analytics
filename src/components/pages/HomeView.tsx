@@ -84,7 +84,7 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
 
           <Card className="flex flex-col gap-3.5">
             <div className="flex items-center justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-base font-bold">{data.month}月の予算と実績</h2>
                 <span className="lbl">
                   {noData
@@ -94,7 +94,7 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
                       : `超過 ${overs.length}件`}
                 </span>
               </div>
-              <Link href={`/budget?year=${data.year}&month=${data.month}`} className="btn-small">
+              <Link href={`/budget?year=${data.year}&month=${data.month}`} className="btn-small shrink-0 whitespace-nowrap">
                 予算を修正
               </Link>
             </div>
