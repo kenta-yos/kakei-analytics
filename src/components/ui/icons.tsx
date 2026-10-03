@@ -85,6 +85,11 @@ export const TrendIcon = (p: P) => (
     <path d="M4 20h16M6 16l4-5 3 3 5-7" />
   </Svg>
 );
+export const CheckIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </Svg>
+);
 export const PencilIcon = (p: P) => (
   <Svg {...p}>
     <path d="M4 20h4L19 9l-4-4L4 16v4z" />

@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { Bar, Card, ErrorBox, Loading, MonthNav, Page, useApi } from "@/components/ui/kit";
-import { ChevronRight, SettingsIcon, TrendIcon, UploadIcon } from "@/components/ui/icons";
-import { nextMonth, num, prevMonth, signed, yen } from "@/lib/format";
+import { CheckIcon, ChevronRight, SettingsIcon, TrendIcon, UploadIcon } from "@/components/ui/icons";
+import { nextMonth, num, prevMonth, signed, todayJst, yen, ymKey } from "@/lib/format";
 
 type HomeData = {
   year: number;
@@ -34,6 +34,10 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
   const noData = data.asOfDay === 0;
   const isPartial = !noData && data.elapsedRatio < 1;
   const c = data.closing;
+  // 評価額は月末に1回入れる。25日を過ぎたら今月末の分、それまでは先月末の分が入っているかを見る
+  const t = todayJst();
+  const vTarget = t.day >= 25 ? { year: t.year, month: t.month } : prevMonth(t.year, t.month);
+  const vDone = !!data.latestValuation && ymKey(data.latestValuation.year, data.latestValuation.month) >= ymKey(vTarget.year, vTarget.month);
 
   return (
     <Page wide>
@@ -69,10 +73,17 @@ export default function HomeView({ year, month }: { year?: number; month?: numbe
                 <UploadIcon size={18} />
                 CSVを取り込む
               </Link>
-              <Link href="/valuation" className="btn-ghost">
-                <TrendIcon size={18} />
-                評価額を入力
-              </Link>
+              {vDone ? (
+                <Link href="/valuation" className="btn-ghost text-sub">
+                  <CheckIcon size={18} className="text-accent" />
+                  {vTarget.month}月末 入力済み
+                </Link>
+              ) : (
+                <Link href="/valuation" className="btn-ghost border-over-fill bg-over-soft font-bold text-over hover:bg-over-soft">
+                  <TrendIcon size={18} />
+                  {vTarget.month}月末の評価額を入力
+                </Link>
+              )}
             </div>
           </Card>
 
