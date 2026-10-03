@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import AnalysisHeader from "@/components/analysis/AnalysisHeader";
 import LineChart, { MonthAxis } from "@/components/charts/LineChart";
 import { Card, CardTitle, ErrorBox, Legend, Loading, Page, Segmented, Skeleton, useApi } from "@/components/ui/kit";
@@ -343,9 +343,22 @@ function CategoryRow({
             style={{ left: `${pos(c.current)}%` }}
           />
         </div>
-        <div className="lbl">
-          {currentLabel} {yen(c.current)} · 例年 {yen(c.min)}〜{num(c.max)}
-          {months > 1 && ` · 月平均 今年 ${num(c.current / months)} / 例年 ${num(c.avg / months)}`}
+        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)_minmax(0,1.6fr)] gap-x-3 gap-y-0.5 text-[12px] text-sub">
+          <span />
+          <span className="text-right">{currentLabel}</span>
+          <span className="text-right">例年の幅</span>
+          {[
+            { label: months > 1 ? "累計" : "", div: 1 },
+            ...(months > 1 ? [{ label: "月あたり", div: months }] : []),
+          ].map((r) => (
+            <Fragment key={r.label}>
+              <span>{r.label}</span>
+              <span className={`text-right font-bold ${above ? "text-over" : below ? "text-accent" : "text-ink"}`}>{num(c.current / r.div)}</span>
+              <span className="text-right text-ink2">
+                {num(c.min / r.div)}〜{num(c.max / r.div)}
+              </span>
+            </Fragment>
+          ))}
         </div>
       </button>
       {open && (
